@@ -23,6 +23,12 @@ pub struct Config {
     /// Example: "claude --print {prompt}" or "opencode -p {prompt}"
     #[serde(default)]
     pub agent: Option<String>,
+    /// Maximum number of iterations for `ratchet loop`.
+    #[serde(default)]
+    pub max_iterations: Option<usize>,
+    /// Stop after N consecutive iterations without improvement.
+    #[serde(default)]
+    pub patience: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]

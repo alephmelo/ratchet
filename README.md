@@ -218,6 +218,8 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `baseline` | no | Known baseline values (avoids re-running) |
 | `context` | no | Free-text domain hints for the agent |
 | `agent` | no | Agent command for `ratchet loop`. Use `{prompt}` as placeholder. |
+| `max_iterations` | no | Maximum iterations for `ratchet loop` (overridden by `-n`). |
+| `patience` | no | Stop after N iterations without improvement (overridden by `-p`). |
 
 ## Examples
 

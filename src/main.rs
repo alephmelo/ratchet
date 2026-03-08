@@ -140,6 +140,15 @@ fn main() -> Result<()> {
             );
             println!("  constraints: {}", cfg.constraints.len());
             println!("  timeout:     {}s", cfg.timeout);
+            if let Some(agent) = &cfg.agent {
+                println!("  agent:       {}", agent);
+            }
+            if let Some(max) = cfg.max_iterations {
+                println!("  max_iter:    {}", max);
+            }
+            if let Some(p) = cfg.patience {
+                println!("  patience:    {}", p);
+            }
         }
         Commands::Results {
             config,
@@ -188,7 +197,11 @@ fn main() -> Result<()> {
                 },
             };
 
-            loop_cmd::run_loop(&cfg, &agent_cmd, &tsv_path, max, patience)?;
+            // CLI flags override config values
+            let max_iterations = max.or(cfg.max_iterations);
+            let patience = patience.or(cfg.patience);
+
+            loop_cmd::run_loop(&cfg, &agent_cmd, &tsv_path, max_iterations, patience)?;
         }
         Commands::Plot {
             config,

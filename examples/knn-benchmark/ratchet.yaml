@@ -27,6 +27,8 @@ context: |
   Values are floats in roughly [-15, 15] range.
 
 # agent: 'opencode run < {prompt}'
+# max_iterations: 20
+# patience: 5
 
 baseline:
   throughput: 380.0
