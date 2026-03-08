@@ -405,25 +405,36 @@ fn spawn_agent(agent_cmd: &str, prompt_path: &Path) -> Result<String> {
     // Replace {prompt} placeholder with actual path
     let cmd = agent_cmd.replace("{prompt}", &prompt_path.display().to_string());
 
-    let output = Command::new("sh")
+    // Inherit stdout and stderr so the user can see agent output in real-time.
+    // We capture the description from the last few lines of stdout instead.
+    let mut child = Command::new("sh")
         .arg("-c")
         .arg(&cmd)
-        .output()
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
         .context("failed to spawn agent")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("agent exited with error: {}", stderr.trim());
+    let status = child.wait().context("waiting for agent to finish")?;
+
+    if !status.success() {
+        bail!("agent exited with code {}", status.code().unwrap_or(-1));
     }
 
-    // Agent's stdout is its description of what it did
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Since we inherited stdout, we can't capture the description from it.
+    // Use git diff --stat to summarize what changed instead.
+    let diff_output = Command::new("git")
+        .args(["diff", "--stat", "HEAD"])
+        .output()
+        .context("git diff --stat")?;
 
-    // Try to extract a short description from agent output (first non-empty line)
-    let description = stdout
+    let diff_stat = String::from_utf8_lossy(&diff_output.stdout)
+        .trim()
+        .to_string();
+    let description = diff_stat
         .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("(no description)")
+        .last()
+        .unwrap_or("agent edit")
         .trim()
         .to_string();
 
@@ -516,6 +527,7 @@ pub fn run_loop(
     agent_cmd: &str,
     tsv_path: &Path,
     max_iterations: Option<usize>,
+    patience: Option<usize>,
 ) -> Result<()> {
     println!();
     println!(
@@ -528,6 +540,15 @@ pub fn run_loop(
         }
     );
     println!("  agent: {}", agent_cmd);
+    if let Some(max) = max_iterations {
+        println!("  max iterations: {}", max);
+    }
+    if let Some(p) = patience {
+        println!(
+            "  patience: {} (stop after {} iterations without improvement)",
+            p, p
+        );
+    }
     println!();
 
     // Initialize results.tsv with baseline if needed
@@ -562,6 +583,7 @@ pub fn run_loop(
     let prompt_path = PathBuf::from(".ratchet-prompt.md");
 
     let mut iteration = 0;
+    let mut since_improvement = 0_usize;
     loop {
         iteration += 1;
 
@@ -569,6 +591,17 @@ pub fn run_loop(
             if iteration > max {
                 println!();
                 println!("  reached max iterations ({}), stopping", max);
+                break;
+            }
+        }
+
+        if let Some(p) = patience {
+            if since_improvement >= p {
+                println!();
+                println!(
+                    "  no improvement in {} iterations, stopping (patience exhausted)",
+                    p
+                );
                 break;
             }
         }
@@ -630,6 +663,7 @@ pub fn run_loop(
                 &description,
                 total_elapsed,
             );
+            since_improvement += 1;
             continue;
         }
 
@@ -666,6 +700,7 @@ pub fn run_loop(
                 &violation_desc,
                 total_elapsed,
             );
+            since_improvement += 1;
             continue;
         }
 
@@ -710,6 +745,7 @@ pub fn run_loop(
                 &description,
                 total_elapsed,
             );
+            since_improvement = 0;
         } else {
             // Discard — revert
             git_revert_editable(config)?;
@@ -734,6 +770,7 @@ pub fn run_loop(
                 &description,
                 total_elapsed,
             );
+            since_improvement += 1;
         }
     }
 

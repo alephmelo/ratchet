@@ -93,6 +93,10 @@ enum Commands {
         /// Maximum number of iterations (default: unlimited)
         #[arg(short = 'n', long)]
         max: Option<usize>,
+
+        /// Stop after N consecutive iterations without improvement
+        #[arg(short, long)]
+        patience: Option<usize>,
     },
 
     /// Plot metric progression from results.tsv
@@ -165,6 +169,7 @@ fn main() -> Result<()> {
             agent,
             results: tsv_path,
             max,
+            patience,
         } => {
             let cfg = config::Config::from_file(&config)
                 .with_context(|| format!("loading config from {}", config.display()))?;
@@ -183,7 +188,7 @@ fn main() -> Result<()> {
                 },
             };
 
-            loop_cmd::run_loop(&cfg, &agent_cmd, &tsv_path, max)?;
+            loop_cmd::run_loop(&cfg, &agent_cmd, &tsv_path, max, patience)?;
         }
         Commands::Plot {
             config,

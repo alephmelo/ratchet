@@ -172,6 +172,12 @@ ratchet loop
 
 # Limit iterations
 ratchet loop --agent "opencode -p {prompt}" -n 20
+
+# Stop after 5 consecutive iterations without improvement
+ratchet loop -p 5
+
+# Combine both: at most 50 iterations, stop early if stuck
+ratchet loop -n 50 -p 5
 ```
 
 The `{prompt}` placeholder is replaced with the path to a generated prompt file. The agent should read it, edit the editable files, and exit. Ratchet handles everything else (git, benchmark, evaluation, logging).

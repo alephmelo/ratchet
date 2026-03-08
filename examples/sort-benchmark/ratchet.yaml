@@ -22,6 +22,7 @@ timeout: 30
 
 # Agent command for `ratchet loop`. Use {prompt} as placeholder for the prompt file.
 # agent: "claude --print {prompt}"
+agent: 'opencode run < {prompt}'
 
 baseline:
   throughput: 85.0

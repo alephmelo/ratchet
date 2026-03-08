@@ -7,3 +7,4 @@ f6b82ca	35599.33	100.0	keep	numpy introsort on contiguous int64 array
 9b9552e	45964.69	100.0	keep	int32 instead of int64 for better cache utilization
 f37d0c1	49704.88	100.0	keep	int16 -- values fit in 16 bits
 8aaad3b	44018.12	100.0	discard	np.sort stable returns new array -- extra allocation hurts
+a54fe56	71396.70	100.00	keep	3 files changed, 32 insertions(+), 15 deletions(-)
