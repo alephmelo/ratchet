@@ -6,5 +6,6 @@ The function my_sort(arr) must return a sorted list in ascending order.
 
 
 def my_sort(arr):
-    """Use Python's built-in Timsort (C implementation)."""
-    return sorted(arr)
+    """In-place sort to avoid allocating a new list."""
+    arr.sort()
+    return arr
