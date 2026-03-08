@@ -33,6 +33,7 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     }
 
     // Parse rows
+    let num_metrics = config.primary_metrics().len();
     let num_constraints = config.constraints.len();
     let mut runs: Vec<Run> = Vec::new();
 
@@ -41,15 +42,17 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() < 4 + num_constraints {
+        let min_cols = 1 + num_metrics + num_constraints + 2;
+        if cols.len() < min_cols {
             bail!(
                 "line {} has {} columns, expected at least {}",
                 line_num + 2,
                 cols.len(),
-                4 + num_constraints
+                min_cols
             );
         }
 
+        // First metric value (for backward-compat display)
         let metric_value: f64 = cols[1]
             .trim()
             .parse()
@@ -57,15 +60,15 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
 
         let mut constraint_values = Vec::new();
         for i in 0..num_constraints {
-            let v: f64 = cols[2 + i]
+            let v: f64 = cols[1 + num_metrics + i]
                 .trim()
                 .parse()
                 .with_context(|| format!("parsing constraint {} on line {}", i, line_num + 2))?;
             constraint_values.push(v);
         }
 
-        let status_idx = 2 + num_constraints;
-        let desc_idx = 3 + num_constraints;
+        let status_idx = 1 + num_metrics + num_constraints;
+        let desc_idx = status_idx + 1;
 
         runs.push(Run {
             commit: cols[0].trim().to_string(),
@@ -85,7 +88,8 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let direction = config.metric.direction;
+    let first_metric = config.first_metric();
+    let direction = first_metric.direction;
     let dir_symbol = match direction {
         Direction::Maximize => "^",
         Direction::Minimize => "v",
@@ -120,7 +124,7 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     println!(
         "  {} — {} {} ({}) ",
         config.name,
-        config.metric.name,
+        first_metric.name,
         dir_symbol,
         match direction {
             Direction::Maximize => "higher is better",
@@ -132,7 +136,7 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     // Scoreboard
     println!(
         "  {:<10} {:>12}  {:<8} {:>1} {:<8} {}",
-        "commit", config.metric.name, "vs base", "", "status", "description"
+        "commit", first_metric.name, "vs base", "", "status", "description"
     );
     println!("  {}", "-".repeat(76));
 
@@ -190,11 +194,11 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         };
         println!(
             "  best:        {} = {:.2}  ({})  [{}]",
-            config.metric.name, best.metric_value, improvement_str, best.commit
+            first_metric.name, best.metric_value, improvement_str, best.commit
         );
         println!(
             "  baseline:    {} = {:.2}",
-            config.metric.name, baseline_value
+            first_metric.name, baseline_value
         );
     }
 

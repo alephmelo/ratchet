@@ -45,8 +45,16 @@ Each experiment runs a fixed evaluation. You launch it simply as: `{{ run_comman
 - Modify `ratchet.yaml`. It defines the experiment rules.
 - Install new packages or add dependencies beyond what's already available.
 - Modify the evaluation harness or metric computation.
+{% if is_multi_metric %}
+**The goal: optimize multiple metrics simultaneously using Pareto dominance.**
+{% for m in all_metrics %}
+- **{{ m.name }}** — {{ m.direction }}
+{%- endfor %}
 
+A result is kept if no previous kept result is better in ALL metrics simultaneously. This allows exploring trade-offs between metrics.
+{%- else %}
 **The goal is simple: get the {% if direction == "maximize" %}highest{% else %}lowest{% endif %} `{{ metric_name }}`.**
+{%- endif %}
 {%- if has_constraints %} The following constraints also apply:
 {% for c in constraints %}
 {%- if c.fail_above is defined and c.fail_above is not none %}

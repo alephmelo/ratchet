@@ -51,15 +51,19 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
     let mut output_lines: Vec<String> = Vec::new();
     let mut metrics: Vec<MetricResult> = Vec::new();
 
+    let first_metric = config.first_metric();
+
     for line in reader.lines() {
         let line = line.context("reading benchmark output")?;
 
-        // Check primary metric
-        if let Some(value) = try_parse_metric(&line, &config.metric.name, &config.metric.grep) {
-            metrics.push(MetricResult {
-                name: config.metric.name.clone(),
-                value,
-            });
+        // Check all primary metrics
+        for pm in config.primary_metrics() {
+            if let Some(value) = try_parse_metric(&line, &pm.name, &pm.grep) {
+                metrics.push(MetricResult {
+                    name: pm.name.clone(),
+                    value,
+                });
+            }
         }
 
         // Check constraints
@@ -101,10 +105,9 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
     if metrics.is_empty() {
         println!("  WARNING: no metrics found in output");
         println!("  Make sure your benchmark prints lines matching the grep patterns:");
-        println!(
-            "    metric: {} (grep: {})",
-            config.metric.name, config.metric.grep
-        );
+        for pm in config.primary_metrics() {
+            println!("    metric: {} (grep: {})", pm.name, pm.grep);
+        }
         for c in &config.constraints {
             println!("    constraint: {} (grep: {})", c.name, c.grep);
         }
@@ -116,16 +119,16 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    // Find primary metric
-    let primary = metrics.iter().find(|m| m.name == config.metric.name);
+    // Find primary metric (first one for display)
+    let primary = metrics.iter().find(|m| m.name == first_metric.name);
 
     println!("  results:");
     println!();
 
     for m in &metrics {
-        let is_primary = m.name == config.metric.name;
+        let is_primary = m.name == first_metric.name;
         let marker = if is_primary {
-            match config.metric.direction {
+            match first_metric.direction {
                 Direction::Maximize => " ^",
                 Direction::Minimize => " v",
             }
@@ -197,14 +200,14 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
 
     // Compare with baseline if available
     if let (Some(primary), Some(baseline)) = (primary, &config.baseline) {
-        if let Some(&baseline_val) = baseline.get(&config.metric.name) {
+        if let Some(&baseline_val) = baseline.get(&first_metric.name) {
             let ratio = if baseline_val != 0.0 {
                 primary.value / baseline_val
             } else {
                 1.0
             };
 
-            let is_better = match config.metric.direction {
+            let is_better = match first_metric.direction {
                 Direction::Maximize => primary.value > baseline_val,
                 Direction::Minimize => primary.value < baseline_val,
             };

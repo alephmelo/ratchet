@@ -13,22 +13,24 @@ pub fn render(config: &Config) -> Result<String> {
 
     let tmpl = env.get_template("program.md").unwrap();
 
+    let first_metric = config.first_metric();
+
     let ctx = minijinja::context! {
         name => config.name,
         editable => config.editable,
         readonly => config.readonly,
         run_command => config.run,
-        metric_name => config.metric.name,
-        metric_grep => config.metric.grep,
-        direction => match config.metric.direction {
+        metric_name => first_metric.name,
+        metric_grep => first_metric.grep,
+        direction => match first_metric.direction {
             Direction::Maximize => "maximize",
             Direction::Minimize => "minimize",
         },
-        direction_word => match config.metric.direction {
+        direction_word => match first_metric.direction {
             Direction::Maximize => "higher",
             Direction::Minimize => "lower",
         },
-        direction_worse => match config.metric.direction {
+        direction_worse => match first_metric.direction {
             Direction::Maximize => "lower",
             Direction::Minimize => "higher",
         },
@@ -51,6 +53,17 @@ pub fn render(config: &Config) -> Result<String> {
         context => config.context,
         baseline => config.baseline,
         has_baseline => config.baseline.is_some(),
+        is_multi_metric => config.is_multi_metric(),
+        all_metrics => config.primary_metrics().iter().map(|m| {
+            minijinja::context! {
+                name => m.name,
+                grep => m.grep,
+                direction => match m.direction {
+                    Direction::Maximize => "maximize",
+                    Direction::Minimize => "minimize",
+                },
+            }
+        }).collect::<Vec<_>>(),
     };
 
     let rendered = tmpl.render(&ctx).context("rendering template")?;

@@ -1,10 +1,18 @@
 # Iteration {{ iteration }} — {{ name }}
+{% if is_multi_metric %}
+You are optimizing multiple metrics simultaneously (Pareto optimization):
+{% for i in range(metric_names|length) %}
+- **{{ metric_names[i] }}** ({{ metric_directions[i] }})
+{%- endfor %}
 
+**Goal: improve at least one metric without making any other metric worse.**
+{%- else %}
 You are optimizing `{{ metric_name }}` ({{ direction }}).
 {% if direction == "maximize" %}
 **Goal: make `{{ metric_name }}` as HIGH as possible.**
 {%- else %}
 **Goal: make `{{ metric_name }}` as LOW as possible.**
+{%- endif %}
 {%- endif %}
 
 ## Current state
@@ -17,12 +25,19 @@ You are optimizing `{{ metric_name }}` ({{ direction }}).
 {% endfor %}
 
 ## History
-
+{% if is_multi_metric %}
+| # | {% for name in metric_names %}{{ name }} | {% endfor %}vs baseline | status | description |
+|---|{% for name in metric_names %}---|{% endfor %}---|---|---|
+{%- for r in history %}
+| {{ r.num }} | {% for name in metric_names %}{{ r["metric_" ~ name] }} | {% endfor %}{{ r.vs_baseline }} | {{ r.status }} | {{ r.description }} |
+{%- endfor %}
+{%- else %}
 | # | {{ metric_name }} | vs baseline | status | description |
 |---|---|---|---|---|
 {%- for r in history %}
 | {{ r.num }} | {{ r.metric }} | {{ r.vs_baseline }} | {{ r.status }} | {{ r.description }} |
 {%- endfor %}
+{%- endif %}
 
 **Best so far: {{ best_metric }}** ({{ best_vs_baseline }}){% if best_commit %} [{{ best_commit }}]{% endif %}
 
@@ -52,12 +67,19 @@ You are optimizing `{{ metric_name }}` ({{ direction }}).
 {% if last_attempt %}
 ## Last attempt
 
-Experiment {{ last_attempt.num }}: "{{ last_attempt.description }}" — {{ last_attempt.status }}{% if last_attempt.status == "discard" %} ({{ metric_name }} went the wrong way){% elif last_attempt.status == "crash" %} (crashed or constraint violation){% endif %}
+Experiment {{ last_attempt.num }}: "{{ last_attempt.description }}" — {{ last_attempt.status }}{% if last_attempt.status == "discard" %} ({% if is_multi_metric %}dominated by existing result{% else %}{{ metric_name }} went the wrong way{% endif %}){% elif last_attempt.status == "crash" %} (crashed or constraint violation){% endif %}
+{%- endif %}
+{% if strategy_hints %}
+## Strategy hints
+
+{% for hint in strategy_hints %}
+- {{ hint }}
+{% endfor %}
 {%- endif %}
 
 ## Rules
 
-1. **Make exactly ONE focused change** to improve `{{ metric_name }}`. Pick a single idea and implement it.
+1. **Make exactly ONE focused change** to improve {% if is_multi_metric %}at least one metric without worsening others{% else %}`{{ metric_name }}`{% endif %}. Pick a single idea and implement it.
 2. **Do NOT run the benchmark yourself.** Do not execute the benchmark or test your changes. The orchestrator will benchmark after you exit.
 3. **Do NOT iterate.** Make your edit and exit immediately. If it doesn't work, you'll get another chance in the next iteration with updated context.
 4. **Edit ONLY these files:**

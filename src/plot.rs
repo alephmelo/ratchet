@@ -18,6 +18,7 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
     let mut lines = contents.lines();
     let _header = lines.next().context("results.tsv is empty")?;
 
+    let num_metrics = config.primary_metrics().len();
     let num_constraints = config.constraints.len();
     let mut points = Vec::new();
 
@@ -26,13 +27,14 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() < 4 + num_constraints {
+        let min_cols = 1 + num_metrics + num_constraints + 2;
+        if cols.len() < min_cols {
             continue;
         }
 
         let commit = cols[0].trim();
         let value: f64 = cols[1].trim().parse().unwrap_or(0.0);
-        let status_idx = 2 + num_constraints;
+        let status_idx = 1 + num_metrics + num_constraints;
 
         points.push(DataPoint {
             label: if commit == "baseline" {
@@ -59,7 +61,8 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let dir_symbol = match config.metric.direction {
+    let first_metric = config.first_metric();
+    let dir_symbol = match first_metric.direction {
         Direction::Maximize => "^",
         Direction::Minimize => "v",
     };
@@ -68,9 +71,9 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     println!(
         "  {} — {} {} ({})",
         config.name,
-        config.metric.name,
+        first_metric.name,
         dir_symbol,
-        match config.metric.direction {
+        match first_metric.direction {
             Direction::Maximize => "higher is better",
             Direction::Minimize => "lower is better",
         }
@@ -98,7 +101,7 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     let scale_max = if max_val > 0.0 { max_val } else { 1.0 };
 
     // Find the best value
-    let best_val = match config.metric.direction {
+    let best_val = match first_metric.direction {
         Direction::Maximize => max_val,
         Direction::Minimize => min_val,
     };
@@ -183,7 +186,7 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         .iter()
         .filter(|p| p.status == "keep")
         .map(|p| p.value)
-        .max_by(|a, b| match config.metric.direction {
+        .max_by(|a, b| match first_metric.direction {
             Direction::Maximize => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
             Direction::Minimize => b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal),
         });

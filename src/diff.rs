@@ -12,20 +12,24 @@ fn find_best_commit(config: &Config, tsv_path: &Path) -> Result<String> {
     let mut lines = contents.lines();
     let _header = lines.next().context("results.tsv is empty")?;
 
+    let num_metrics = config.primary_metrics().len();
     let num_constraints = config.constraints.len();
     let mut best_commit: Option<String> = None;
     let mut best_value: Option<f64> = None;
+
+    let first_metric = config.first_metric();
 
     for line in lines {
         if line.trim().is_empty() {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() < 4 + num_constraints {
+        let min_cols = 1 + num_metrics + num_constraints + 2;
+        if cols.len() < min_cols {
             continue;
         }
 
-        let status_idx = 2 + num_constraints;
+        let status_idx = 1 + num_metrics + num_constraints;
         let status = cols[status_idx].trim();
         if status != "keep" {
             continue;
@@ -43,7 +47,7 @@ fn find_best_commit(config: &Config, tsv_path: &Path) -> Result<String> {
 
         let is_better = match best_value {
             None => true,
-            Some(current_best) => match config.metric.direction {
+            Some(current_best) => match first_metric.direction {
                 Direction::Maximize => value > current_best,
                 Direction::Minimize => value < current_best,
             },

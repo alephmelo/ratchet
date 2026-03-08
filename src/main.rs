@@ -130,14 +130,19 @@ fn main() -> Result<()> {
             println!("  editable:    {:?}", cfg.editable);
             println!("  readonly:    {:?}", cfg.readonly);
             println!("  run:         {}", cfg.run);
-            println!(
-                "  metric:      {} ({})",
-                cfg.metric.name,
-                match cfg.metric.direction {
-                    config::Direction::Maximize => "maximize",
-                    config::Direction::Minimize => "minimize",
-                }
-            );
+            for m in cfg.primary_metrics() {
+                println!(
+                    "  metric:      {} ({})",
+                    m.name,
+                    match m.direction {
+                        config::Direction::Maximize => "maximize",
+                        config::Direction::Minimize => "minimize",
+                    }
+                );
+            }
+            if cfg.is_multi_metric() {
+                println!("  mode:        multi-metric (Pareto)");
+            }
             println!("  constraints: {}", cfg.constraints.len());
             println!("  timeout:     {}s", cfg.timeout);
             if let Some(agent) = &cfg.agent {

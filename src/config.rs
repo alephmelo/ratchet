@@ -10,7 +10,12 @@ pub struct Config {
     #[serde(default)]
     pub readonly: Vec<String>,
     pub run: String,
-    pub metric: Metric,
+    /// Single primary metric (backward-compatible).
+    #[serde(default)]
+    pub metric: Option<Metric>,
+    /// Multiple primary metrics (Pareto optimization). Takes precedence over `metric`.
+    #[serde(default)]
+    pub metrics: Option<Vec<Metric>>,
     #[serde(default)]
     pub constraints: Vec<Constraint>,
     #[serde(default = "default_timeout")]
@@ -31,7 +36,7 @@ pub struct Config {
     pub patience: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Metric {
     pub name: String,
     pub grep: String,
@@ -73,6 +78,29 @@ impl Config {
         Ok(config)
     }
 
+    /// Returns the list of primary metrics. Supports both singular `metric` and plural `metrics`.
+    pub fn primary_metrics(&self) -> Vec<&Metric> {
+        if let Some(ref metrics) = self.metrics {
+            metrics.iter().collect()
+        } else if let Some(ref metric) = self.metric {
+            vec![metric]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Whether this config uses multi-metric (Pareto) mode.
+    pub fn is_multi_metric(&self) -> bool {
+        self.metrics.as_ref().map(|m| m.len() > 1).unwrap_or(false)
+    }
+
+    /// The first (or only) primary metric — used for backward-compatible display.
+    pub fn first_metric(&self) -> &Metric {
+        self.primary_metrics()
+            .first()
+            .expect("at least one metric must be defined")
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.editable.is_empty() {
             bail!("'editable' must list at least one file");
@@ -86,25 +114,47 @@ impl Config {
             bail!("'run' must not be empty");
         }
 
-        if self.metric.name.trim().is_empty() {
-            bail!("'metric.name' must not be empty");
+        // Must have either metric or metrics
+        let primary = self.primary_metrics();
+        if primary.is_empty() {
+            bail!("must define either 'metric' or 'metrics' with at least one entry");
         }
 
-        if self.metric.grep.trim().is_empty() {
-            bail!("'metric.grep' must not be empty");
+        // Cannot have both metric and metrics
+        if self.metric.is_some() && self.metrics.is_some() {
+            bail!("cannot define both 'metric' and 'metrics' — use one or the other");
+        }
+
+        for m in &primary {
+            if m.name.trim().is_empty() {
+                bail!("metric 'name' must not be empty");
+            }
+            if m.grep.trim().is_empty() {
+                bail!("metric 'grep' must not be empty");
+            }
+        }
+
+        // Check for duplicate metric names
+        let mut seen = std::collections::HashSet::new();
+        for m in &primary {
+            if !seen.insert(&m.name) {
+                bail!("duplicate metric name '{}'", m.name);
+            }
         }
 
         if self.timeout == 0 {
             bail!("'timeout' must be greater than 0");
         }
 
-        // Constraint names must not collide with metric name
+        // Constraint names must not collide with metric names
         for c in &self.constraints {
-            if c.name == self.metric.name {
-                bail!(
-                    "constraint name '{}' collides with the primary metric name",
-                    c.name
-                );
+            for m in &primary {
+                if c.name == m.name {
+                    bail!(
+                        "constraint name '{}' collides with a primary metric name",
+                        c.name
+                    );
+                }
             }
             if c.name.trim().is_empty() {
                 bail!("constraint 'name' must not be empty");
@@ -124,13 +174,12 @@ impl Config {
             }
         }
 
-        // If baseline is provided, it must include the primary metric
+        // If baseline is provided, it must include all primary metrics
         if let Some(baseline) = &self.baseline {
-            if !baseline.contains_key(&self.metric.name) {
-                bail!(
-                    "baseline must include the primary metric '{}'",
-                    self.metric.name
-                );
+            for m in &primary {
+                if !baseline.contains_key(&m.name) {
+                    bail!("baseline must include the primary metric '{}'", m.name);
+                }
             }
         }
 
@@ -139,7 +188,11 @@ impl Config {
 
     /// Build the combined grep pattern for extracting all metrics from run.log.
     pub fn grep_pattern(&self) -> String {
-        let mut patterns = vec![self.metric.grep.clone()];
+        let mut patterns: Vec<String> = self
+            .primary_metrics()
+            .iter()
+            .map(|m| m.grep.clone())
+            .collect();
         for c in &self.constraints {
             patterns.push(c.grep.clone());
         }
@@ -148,7 +201,10 @@ impl Config {
 
     /// Build the TSV header columns.
     pub fn tsv_columns(&self) -> Vec<String> {
-        let mut cols = vec!["commit".to_string(), self.metric.name.clone()];
+        let mut cols = vec!["commit".to_string()];
+        for m in self.primary_metrics() {
+            cols.push(m.name.clone());
+        }
         for c in &self.constraints {
             cols.push(c.name.clone());
         }
