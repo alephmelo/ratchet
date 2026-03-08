@@ -1,6 +1,8 @@
 mod config;
 mod diff;
 mod generate;
+mod loop_cmd;
+mod plot;
 mod results;
 mod run;
 
@@ -73,6 +75,36 @@ enum Commands {
         #[arg(short, long, default_value = "results.tsv")]
         results: PathBuf,
     },
+
+    /// Run the autonomous optimization loop
+    Loop {
+        /// Path to config file
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+
+        /// Agent command (overrides config). Use {prompt} for prompt file path.
+        #[arg(short, long)]
+        agent: Option<String>,
+
+        /// Path to results file
+        #[arg(short, long, default_value = "results.tsv")]
+        results: PathBuf,
+
+        /// Maximum number of iterations (default: unlimited)
+        #[arg(short = 'n', long)]
+        max: Option<usize>,
+    },
+
+    /// Plot metric progression from results.tsv
+    Plot {
+        /// Path to config file
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+
+        /// Path to results file
+        #[arg(short, long, default_value = "results.tsv")]
+        results: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -127,6 +159,39 @@ fn main() -> Result<()> {
             let cfg = config::Config::from_file(&config)
                 .with_context(|| format!("loading config from {}", config.display()))?;
             diff::show_diff(&cfg, commit.as_deref(), best, &tsv_path)?;
+        }
+        Commands::Loop {
+            config,
+            agent,
+            results: tsv_path,
+            max,
+        } => {
+            let cfg = config::Config::from_file(&config)
+                .with_context(|| format!("loading config from {}", config.display()))?;
+
+            // Determine agent command: CLI flag > config file > error
+            let agent_cmd = match agent {
+                Some(a) => a,
+                None => match &cfg.agent {
+                    Some(a) => a.clone(),
+                    None => {
+                        anyhow::bail!(
+                            "no agent specified. Use --agent or set 'agent' in {}",
+                            config.display()
+                        );
+                    }
+                },
+            };
+
+            loop_cmd::run_loop(&cfg, &agent_cmd, &tsv_path, max)?;
+        }
+        Commands::Plot {
+            config,
+            results: tsv_path,
+        } => {
+            let cfg = config::Config::from_file(&config)
+                .with_context(|| format!("loading config from {}", config.display()))?;
+            plot::show_plot(&cfg, &tsv_path)?;
         }
     }
 

@@ -2,4 +2,5 @@
 program.md
 run.log
 results.tsv
+.ratchet-prompt.md
 __pycache__/

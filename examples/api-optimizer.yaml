@@ -24,6 +24,9 @@ constraints:
 
 timeout: 120
 
+# Agent command for `ratchet loop`. Use {prompt} as placeholder for the prompt file.
+# agent: "claude --print {prompt}"
+
 context: |
   This is a FastAPI server serving a REST API with CRUD endpoints.
   The benchmark runs 100 concurrent connections for 60 seconds against

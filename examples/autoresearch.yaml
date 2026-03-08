@@ -20,6 +20,9 @@ constraints:
 
 timeout: 300
 
+# Agent command for `ratchet loop`. Use {prompt} as placeholder for the prompt file.
+# agent: "claude --print {prompt}"
+
 baseline:
   val_bpb: 0.997900
   peak_vram_mb: 45060.2

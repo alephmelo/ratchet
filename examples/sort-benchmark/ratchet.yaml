@@ -20,6 +20,9 @@ constraints:
 
 timeout: 30
 
+# Agent command for `ratchet loop`. Use {prompt} as placeholder for the prompt file.
+# agent: "claude --print {prompt}"
+
 baseline:
   throughput: 85.0
   correctness: 100.0

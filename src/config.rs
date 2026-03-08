@@ -19,6 +19,10 @@ pub struct Config {
     pub context: Option<String>,
     #[serde(default)]
     pub baseline: Option<HashMap<String, f64>>,
+    /// Agent command template. Use {prompt} as placeholder for the prompt file path.
+    /// Example: "claude --print {prompt}" or "opencode -p {prompt}"
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +39,7 @@ pub enum Direction {
     Minimize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct Constraint {
     pub name: String,
     pub grep: String,

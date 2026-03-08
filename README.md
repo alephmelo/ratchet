@@ -4,6 +4,8 @@ Point an AI agent at your code, tell it what number to improve, and let it run f
 
 Ratchet generates a `program.md` from a simple YAML config. You hand that file to any AI coding agent (Claude Code, Codex, OpenCode, etc.) and it runs an autonomous loop: edit code, run experiment, measure metric, keep if better, revert if worse, repeat.
 
+Or use `ratchet loop` to let ratchet orchestrate everything — it spawns the agent, runs the benchmark, evaluates results, and handles git automatically.
+
 Inspired by Karpathy's [autoresearch](https://github.com/karpathy/autoresearch).
 
 ## How it works
@@ -44,6 +46,12 @@ Then:
 ```bash
 ratchet init               # generates program.md
 # hand program.md to your AI agent
+```
+
+Or let ratchet run the whole loop:
+
+```bash
+ratchet loop --agent "claude --print {prompt}"
 ```
 
 That's it. The agent takes over from there.
@@ -150,6 +158,41 @@ cargo build --release
   +    a = np.array(arr, dtype=np.int16)
 ```
 
+**`ratchet loop`** -- run the autonomous optimization loop
+
+Ratchet controls the iteration: spawn agent to edit code, run benchmark, evaluate, keep or revert, repeat. The agent only sees a focused per-iteration prompt with the current code, history, and what to try.
+
+```bash
+# Specify agent on the command line
+ratchet loop --agent "claude --print {prompt}"
+
+# Or set it in ratchet.yaml
+# agent: "claude --print {prompt}"
+ratchet loop
+
+# Limit iterations
+ratchet loop --agent "opencode -p {prompt}" -n 20
+```
+
+The `{prompt}` placeholder is replaced with the path to a generated prompt file. The agent should read it, edit the editable files, and exit. Ratchet handles everything else (git, benchmark, evaluation, logging).
+
+**`ratchet plot`** -- visualize metric progression
+
+```
+  sort-benchmark — throughput ^ (higher is better)
+
+  +     base █      85.00
+  +  af694fe █████████████████████████████████   33089.98
+  +  8214d37 ██████████████████████████████████   33854.79
+  -  22f00d2 ░░░░░░    6153.36
+  +  f6b82ca ███████████████████████████████████   35599.33
+  +  9b9552e ██████████████████████████████████████████████   45964.69
+  +  f37d0c1 ██████████████████████████████████████████████████   49704.88 *
+  -  8aaad3b ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   44018.12
+
+  █ kept (6/8)  ░ discarded/crashed  * best: 49704.88 (585x)
+```
+
 All commands accept `--config <path>` (default: `ratchet.yaml`).
 
 ## Config reference
@@ -167,6 +210,7 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `timeout` | no | Max seconds per run (default: 600) |
 | `baseline` | no | Known baseline values (avoids re-running) |
 | `context` | no | Free-text domain hints for the agent |
+| `agent` | no | Agent command for `ratchet loop`. Use `{prompt}` as placeholder. |
 
 ## Examples
 

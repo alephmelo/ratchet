@@ -1,0 +1,72 @@
+# Iteration {{ iteration }} — {{ name }}
+
+You are optimizing `{{ metric_name }}` ({{ direction }}).
+{% if direction == "maximize" %}
+**Goal: make `{{ metric_name }}` as HIGH as possible.**
+{%- else %}
+**Goal: make `{{ metric_name }}` as LOW as possible.**
+{%- endif %}
+
+## Current state
+{% for f in editable %}
+### `{{ f.path }}`
+
+```
+{{ f.content }}
+```
+{% endfor %}
+
+## History
+
+| # | {{ metric_name }} | vs baseline | status | description |
+|---|---|---|---|---|
+{%- for r in history %}
+| {{ r.num }} | {{ r.metric }} | {{ r.vs_baseline }} | {{ r.status }} | {{ r.description }} |
+{%- endfor %}
+
+**Best so far: {{ best_metric }}** ({{ best_vs_baseline }}){% if best_commit %} [{{ best_commit }}]{% endif %}
+
+**Baseline: {{ baseline_metric }}**
+{% if has_constraints %}
+## Constraints
+{% for c in constraints %}
+{%- if c.fail_above is defined and c.fail_above is not none %}
+- **{{ c.name }}** must stay below {{ c.fail_above }} (HARD — revert if violated)
+{%- endif %}
+{%- if c.fail_below is defined and c.fail_below is not none %}
+- **{{ c.name }}** must stay above {{ c.fail_below }} (HARD — revert if violated)
+{%- endif %}
+{%- if c.warn_above is defined and c.warn_above is not none %}
+- **{{ c.name }}** should stay below {{ c.warn_above }} (soft)
+{%- endif %}
+{%- if c.warn_below is defined and c.warn_below is not none %}
+- **{{ c.name }}** should stay above {{ c.warn_below }} (soft)
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{% if context %}
+## Domain context
+
+{{ context }}
+{%- endif %}
+{% if last_attempt %}
+## Last attempt
+
+Experiment {{ last_attempt.num }}: "{{ last_attempt.description }}" — {{ last_attempt.status }}{% if last_attempt.status == "discard" %} ({{ metric_name }} went the wrong way){% elif last_attempt.status == "crash" %} (crashed or constraint violation){% endif %}
+{%- endif %}
+
+## Your task
+
+Edit ONLY these files:
+{%- for f in editable %}
+- `{{ f.path }}`
+{%- endfor %}
+
+Do NOT edit:
+{%- for f in readonly %}
+- `{{ f }}`
+{%- endfor %}
+
+Make exactly ONE focused change to improve `{{ metric_name }}`. Think about what hasn't been tried yet based on the history above. Be creative but grounded — the change must actually work.
+
+**Output**: Edit the file(s) directly. Do not explain, do not ask questions, just make the change.
