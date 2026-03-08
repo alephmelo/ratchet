@@ -2,6 +2,8 @@
 
 An AI agent optimizes a mock HTTP request handler for **throughput** and **tail latency** simultaneously, using ratchet's multi-metric Pareto optimization. This is the first example with two competing objectives.
 
+Model used: `opencode/minimax-m2.5-free` (free via OpenCode).
+
 ## What's here
 
 | File | Role |
