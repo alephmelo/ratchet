@@ -1,1 +1,5 @@
 /target
+program.md
+run.log
+results.tsv
+__pycache__/

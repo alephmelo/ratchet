@@ -1,0 +1,33 @@
+name: "sort-benchmark"
+
+editable:
+  - sort.py
+
+readonly:
+  - benchmark.py
+
+run: "python3 benchmark.py"
+
+metric:
+  name: throughput
+  grep: "^throughput:"
+  direction: maximize
+
+constraints:
+  - name: correctness
+    grep: "^correctness:"
+    fail_below: 100.0
+
+timeout: 30
+
+baseline:
+  throughput: 85.0
+  correctness: 100.0
+
+context: |
+  This is a pure-Python sorting benchmark. You can only edit sort.py.
+  The function my_sort(arr) must return a new sorted list in ascending order.
+  The benchmark calls my_sort() on 200 random arrays of 500 integers each
+  and measures throughput (arrays/sec). Correctness must remain 100%.
+  The starting implementation is bubble sort — there is enormous room
+  for improvement. You may use any algorithm or Python built-in.
