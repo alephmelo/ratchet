@@ -16,40 +16,83 @@ import heapq
 
 
 def predict(train_X, train_y, query_X, k):
-    """Optimized brute-force KNN."""
-    # Pre-convert to tuples for faster iteration
-    train_tuples = [tuple(p) for p in train_X]
-    n_train = len(train_tuples)
+    """KNN using a KD-tree for fast neighbor lookup."""
     D = len(train_X[0])
+    n_train = len(train_X)
+
+    # Flatten training data for cache-friendly access
+    flat = []
+    for p in train_X:
+        flat.extend(p)
+
+    labels = train_y
+
+    # Build KD-tree
+    LEAF_SIZE = 24
+
+    def build(indices, depth):
+        n = len(indices)
+        if n <= LEAF_SIZE:
+            return indices  # leaf: just a list of indices
+
+        dim = depth % D
+        indices.sort(key=lambda i: flat[i * D + dim])
+        mid = n >> 1
+        split_val = flat[indices[mid] * D + dim]
+        left = build(indices[:mid], depth + 1)
+        right = build(indices[mid:], depth + 1)
+        return (dim, split_val, left, right)
+
+    tree = build(list(range(n_train)), 0)
+
+    # Query
     predictions = []
+    heappush = heapq.heappush
+    heapreplace = heapq.heapreplace
 
     for query in query_X:
-        q = tuple(query)
-        # Use a max-heap of size k to avoid full sort.
-        # We store negative distances because heapq is a min-heap;
-        # by negating, the largest distance is at the top and gets popped first.
+        q = query
         heap = []
         heap_size = 0
+        worst = float("inf")
 
-        for i in range(n_train):
-            tp = train_tuples[i]
-            # Inline squared distance (skip sqrt — monotonic)
-            dist_sq = 0.0
-            for d in range(D):
-                diff = q[d] - tp[d]
-                dist_sq += diff * diff
-                # Early termination: if partial distance already exceeds
-                # the worst in our heap, skip this point
-                if heap_size == k and dist_sq >= -heap[0][0]:
-                    break
+        stack = [tree]
+        while stack:
+            node = stack.pop()
+
+            if isinstance(node, list):
+                # Leaf node
+                for i in node:
+                    base = i * D
+                    dist_sq = 0.0
+                    d = 0
+                    while d < D:
+                        diff = q[d] - flat[base + d]
+                        dist_sq += diff * diff
+                        if dist_sq >= worst:
+                            break
+                        d += 1
+                    else:
+                        neg = -dist_sq
+                        if heap_size < k:
+                            heappush(heap, (neg, labels[i]))
+                            heap_size += 1
+                            if heap_size == k:
+                                worst = -heap[0][0]
+                        else:
+                            heapreplace(heap, (neg, labels[i]))
+                            worst = -heap[0][0]
             else:
-                # Only reach here if loop completed without break
-                if heap_size < k:
-                    heapq.heappush(heap, (-dist_sq, train_y[i]))
-                    heap_size += 1
+                dim, split_val, left, right = node
+                diff = q[dim] - split_val
+                if diff <= 0:
+                    near, far = left, right
                 else:
-                    # dist_sq < -heap[0][0] guaranteed by early termination check
-                    heapq.heapreplace(heap, (-dist_sq, train_y[i]))
+                    near, far = right, left
+                # Always explore near; only explore far if plane is close enough
+                if diff * diff < worst:
+                    stack.append(far)
+                stack.append(near)
 
         # Majority vote
         votes = {}
