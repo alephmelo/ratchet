@@ -9,6 +9,6 @@ import numpy as np
 
 def my_sort(arr):
     """Use numpy's C-level introsort on a contiguous int array."""
-    a = np.array(arr, dtype=np.int32)
+    a = np.array(arr, dtype=np.int16)
     a.sort()
     return a.tolist()
