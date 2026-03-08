@@ -20,7 +20,7 @@ Ratchet does the rest. It generates detailed instructions that tell the agent ho
 
 ## Apply it to your project
 
-Any project where you can measure a single number works. Write a `ratchet.yaml`:
+Any project where you can measure a number works. Write a `ratchet.yaml`:
 
 ```yaml
 name: "my-project"
@@ -67,6 +67,31 @@ That's it. The agent takes over from there.
 | Image pipeline | processing time | minimize |
 | Search engine | relevance score | maximize |
 | Sorting algorithm | throughput | maximize |
+
+### Multiple metrics (Pareto optimization)
+
+If you have multiple metrics to optimize simultaneously, use `metrics` (plural) instead of `metric`. Ratchet uses Pareto dominance: a result is kept if no previous kept result is better in ALL metrics at once.
+
+```yaml
+name: "api-optimizer"
+
+editable:
+  - src/server.py
+
+run: "python benchmark.py"
+
+metrics:
+  - name: throughput
+    grep: "^throughput:"
+    direction: maximize
+  - name: p99_latency
+    grep: "^p99_latency:"
+    direction: minimize
+
+timeout: 120
+```
+
+This lets the agent explore trade-offs — a result that improves throughput at the cost of slightly higher latency can still be kept if no existing result dominates it across both metrics. Single `metric:` configs continue to work as before.
 
 ### Adding constraints
 
@@ -182,6 +207,11 @@ ratchet loop -n 50 -p 5
 
 The `{prompt}` placeholder is replaced with the path to a generated prompt file. The agent should read it, edit the editable files, and exit. Ratchet handles everything else (git, benchmark, evaluation, logging).
 
+The loop includes two automatic behaviors:
+
+- **Rollback-to-best**: When a result is discarded or crashes, ratchet reverts editable files to the best-scoring commit (not just the previous one). This means the agent always works from the best known state.
+- **Strategy hints**: After a few iterations, ratchet analyzes experiment history and injects hints into the agent's prompt — plateau detection ("recent improvements are marginal, try something different"), failure streak warnings, the biggest improvement so far ("more of this"), and recently failed approaches to avoid.
+
 **`ratchet plot`** -- visualize metric progression
 
 ```
@@ -210,9 +240,8 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `editable` | yes | Files the agent can modify |
 | `readonly` | no | Files the agent must not touch (shown for context) |
 | `run` | yes | Command to run the experiment |
-| `metric.name` | yes | Primary metric name |
-| `metric.grep` | yes | Grep pattern to extract the metric from stdout |
-| `metric.direction` | yes | `maximize` or `minimize` |
+| `metric` | yes* | Single primary metric (`name`, `grep`, `direction`) |
+| `metrics` | yes* | Multiple primary metrics for Pareto optimization (list of `name`, `grep`, `direction`) |
 | `constraints` | no | Secondary metrics with thresholds |
 | `timeout` | no | Max seconds per run (default: 600) |
 | `baseline` | no | Known baseline values (avoids re-running) |
@@ -220,6 +249,8 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `agent` | no | Agent command for `ratchet loop`. Use `{prompt}` as placeholder. |
 | `max_iterations` | no | Maximum iterations for `ratchet loop` (overridden by `-n`). |
 | `patience` | no | Stop after N iterations without improvement (overridden by `-p`). |
+
+*Use either `metric` (single) or `metrics` (multiple), not both.
 
 ## Examples
 
