@@ -51,7 +51,7 @@ ratchet init               # generates program.md
 Or let ratchet run the whole loop:
 
 ```bash
-ratchet loop --agent "claude --print {prompt}"
+ratchet loop --agent "opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}"
 ```
 
 That's it. The agent takes over from there.
@@ -189,14 +189,14 @@ Ratchet controls the iteration: spawn agent to edit code, run benchmark, evaluat
 
 ```bash
 # Specify agent on the command line
-ratchet loop --agent "claude --print {prompt}"
+ratchet loop --agent "opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}"
 
 # Or set it in ratchet.yaml
-# agent: "claude --print {prompt}"
+# agent: 'opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}'
 ratchet loop
 
 # Limit iterations
-ratchet loop --agent "opencode -p {prompt}" -n 20
+ratchet loop -n 20
 
 # Stop after 5 consecutive iterations without improvement
 ratchet loop -p 5

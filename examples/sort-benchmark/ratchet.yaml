@@ -22,7 +22,7 @@ timeout: 30
 
 # Agent command for `ratchet loop`. Use {prompt} as placeholder for the prompt file.
 # agent: "claude --print {prompt}"
-agent: 'opencode run < {prompt}'
+agent: 'opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}'
 # max_iterations: 20
 # patience: 5
 

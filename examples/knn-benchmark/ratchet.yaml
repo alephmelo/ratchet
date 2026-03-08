@@ -26,7 +26,7 @@ context: |
   with math.sqrt. Only stdlib is available — no numpy, no external packages.
   Values are floats in roughly [-15, 15] range.
 
-agent: 'opencode run < {prompt}'
+agent: 'opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}'
 # max_iterations: 20
 # patience: 5
 
