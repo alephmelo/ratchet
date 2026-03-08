@@ -1,0 +1,33 @@
+name: "knn-benchmark"
+
+editable:
+  - knn.py
+
+readonly:
+  - benchmark.py
+
+run: "python3 benchmark.py"
+
+metric:
+  name: throughput
+  grep: "^throughput:"
+  direction: maximize
+
+constraints:
+  - name: accuracy
+    grep: "^accuracy:"
+    fail_below: 90.0
+
+timeout: 60
+
+context: |
+  KNN classifier on 2000 training points, 500 queries, 16 dimensions, k=5.
+  10 classes with gaussian clusters. Pure Python baseline uses brute-force
+  with math.sqrt. Only stdlib is available — no numpy, no external packages.
+  Values are floats in roughly [-15, 15] range.
+
+# agent: 'opencode run < {prompt}'
+
+baseline:
+  throughput: 380.0
+  accuracy: 100.0
