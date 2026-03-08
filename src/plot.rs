@@ -1,16 +1,17 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use crate::config::{Config, Direction};
+use crate::config::{format_metric, Config, Direction};
 
 /// A data point for the chart.
 struct DataPoint {
     label: String,
-    value: f64,
+    /// One value per primary metric (in order).
+    values: Vec<f64>,
     status: String,
 }
 
-/// Parse results.tsv into data points.
+/// Parse results.tsv into data points with all metric values.
 fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
     let contents = std::fs::read_to_string(tsv_path)
         .with_context(|| format!("reading {}", tsv_path.display()))?;
@@ -33,7 +34,11 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
         }
 
         let commit = cols[0].trim();
-        let value: f64 = cols[1].trim().parse().unwrap_or(0.0);
+        let mut values = Vec::with_capacity(num_metrics);
+        for i in 0..num_metrics {
+            let v: f64 = cols[1 + i].trim().parse().unwrap_or(0.0);
+            values.push(v);
+        }
         let status_idx = 1 + num_metrics + num_constraints;
 
         points.push(DataPoint {
@@ -44,7 +49,7 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             } else {
                 commit.to_string()
             },
-            value,
+            values,
             status: cols[status_idx].trim().to_string(),
         });
     }
@@ -52,28 +57,25 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
     Ok(points)
 }
 
-/// Render a horizontal bar chart in the terminal.
-pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
-    let points = parse_data(config, tsv_path)?;
-
-    if points.is_empty() {
-        println!("  No data to plot.");
-        return Ok(());
-    }
-
-    let first_metric = config.first_metric();
-    let dir_symbol = match first_metric.direction {
+/// Render a horizontal bar chart for one metric.
+fn render_chart(
+    points: &[DataPoint],
+    metric_idx: usize,
+    metric_name: &str,
+    direction: Direction,
+    config_name: &str,
+) {
+    let dir_symbol = match direction {
         Direction::Maximize => "^",
         Direction::Minimize => "v",
     };
 
-    println!();
     println!(
         "  {} — {} {} ({})",
-        config.name,
-        first_metric.name,
+        config_name,
+        metric_name,
         dir_symbol,
-        match first_metric.direction {
+        match direction {
             Direction::Maximize => "higher is better",
             Direction::Minimize => "lower is better",
         }
@@ -83,13 +85,13 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     // Find range
     let max_val = points
         .iter()
-        .map(|p| p.value)
+        .map(|p| p.values[metric_idx])
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or(1.0);
 
     let min_val = points
         .iter()
-        .map(|p| p.value)
+        .map(|p| p.values[metric_idx])
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or(0.0);
 
@@ -101,15 +103,16 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     let scale_max = if max_val > 0.0 { max_val } else { 1.0 };
 
     // Find the best value
-    let best_val = match first_metric.direction {
+    let best_val = match direction {
         Direction::Maximize => max_val,
         Direction::Minimize => min_val,
     };
 
     for point in points.iter() {
+        let val = point.values[metric_idx];
         // Scale bar width proportionally
         let bar_width = if scale_max > 0.0 {
-            ((point.value / scale_max) * bar_max_width as f64) as usize
+            ((val / scale_max) * bar_max_width as f64) as usize
         } else {
             0
         };
@@ -118,7 +121,7 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         // Choose bar character based on status
         let (bar_char, marker) = match point.status.as_str() {
             "keep" => {
-                if (point.value - best_val).abs() < f64::EPSILON * 100.0 {
+                if (val - best_val).abs() < f64::EPSILON * 100.0 {
                     ('█', " *") // best result
                 } else {
                     ('█', "")
@@ -140,12 +143,12 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         };
 
         println!(
-            "  {} {:>label_w$} {} {}{:>10.2}{}",
+            "  {} {:>label_w$} {} {}{}{}",
             status_indicator,
             point.label,
             bar,
             "",
-            point.value,
+            format_metric(val),
             marker,
             label_w = label_width,
         );
@@ -163,21 +166,22 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     let mid_val = scale_max / 2.0;
     let quarter = bar_max_width / 4;
 
+    let max_label = format_metric(scale_max);
     println!(
-        "  {}0{}{:.0}{}{:.0}{}{:.0}",
+        "  {}0{}{}{}{}{}{}",
         " ".repeat(label_width + 4),
         " ".repeat(quarter.saturating_sub(1)),
-        mid_val / 2.0,
-        " ".repeat(quarter.saturating_sub(format!("{:.0}", mid_val / 2.0).len())),
-        mid_val,
-        " ".repeat(quarter.saturating_sub(format!("{:.0}", mid_val).len())),
-        scale_max,
+        format_metric(mid_val / 2.0),
+        " ".repeat(quarter.saturating_sub(format_metric(mid_val / 2.0).len())),
+        format_metric(mid_val),
+        " ".repeat(quarter.saturating_sub(format_metric(mid_val).len())),
+        max_label,
     );
 
     // Summary
     println!();
 
-    let baseline_val = points.first().map(|p| p.value).unwrap_or(0.0);
+    let baseline_val = points.first().map(|p| p.values[metric_idx]).unwrap_or(0.0);
     let kept_count = points.iter().filter(|p| p.status == "keep").count();
     let total = points.len();
 
@@ -185,8 +189,8 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     let best_kept = points
         .iter()
         .filter(|p| p.status == "keep")
-        .map(|p| p.value)
-        .max_by(|a, b| match first_metric.direction {
+        .map(|p| p.values[metric_idx])
+        .max_by(|a, b| match direction {
             Direction::Maximize => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
             Direction::Minimize => b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal),
         });
@@ -205,11 +209,42 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         };
 
         println!(
-            "  █ kept ({}/{})  ░ discarded/crashed  * best: {:.2} ({})",
-            kept_count, total, best, improvement
+            "  █ kept ({}/{})  ░ discarded/crashed  * best: {} ({})",
+            kept_count,
+            total,
+            format_metric(best),
+            improvement
         );
     } else {
         println!("  █ kept ({}/{})  ░ discarded/crashed", kept_count, total);
+    }
+}
+
+/// Render a horizontal bar chart in the terminal.
+pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
+    let points = parse_data(config, tsv_path)?;
+
+    if points.is_empty() {
+        println!("  No data to plot.");
+        return Ok(());
+    }
+
+    let primary = config.primary_metrics();
+
+    println!();
+
+    if primary.len() > 1 {
+        // Multi-metric: render one chart per metric
+        for (i, m) in primary.iter().enumerate() {
+            render_chart(&points, i, &m.name, m.direction, &config.name);
+            if i < primary.len() - 1 {
+                println!();
+            }
+        }
+    } else {
+        // Single metric: render one chart
+        let m = &primary[0];
+        render_chart(&points, 0, &m.name, m.direction, &config.name);
     }
 
     println!();

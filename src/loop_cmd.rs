@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::config::{Config, Direction};
+use crate::config::{format_metric, Config, Direction};
 
 /// A parsed row from results.tsv for building iteration prompts.
 struct HistoryRow {
@@ -182,14 +182,14 @@ fn build_iteration_prompt(
 
         let mut m = HashMap::new();
         m.insert("num", row.num.to_string());
-        m.insert("metric", format!("{:.2}", first_val));
+        m.insert("metric", format_metric(first_val));
         // For multi-metric, include all values
         for (i, val) in row.metric_values.iter().enumerate() {
             if i < primary.len() {
                 m.insert(
                     // Leak is fine here — these are short-lived template strings
                     Box::leak(format!("metric_{}", primary[i].name).into_boxed_str()),
-                    format!("{:.2}", val),
+                    format_metric(*val),
                 );
             }
         }
@@ -216,7 +216,7 @@ fn build_iteration_prompt(
     };
 
     let best_metric = best
-        .map(|b| format!("{:.2}", b.first_metric()))
+        .map(|b| format_metric(b.first_metric()))
         .unwrap_or("n/a".to_string());
     let best_commit = best.map(|b| b.commit.clone()).unwrap_or_default();
     let best_vs_baseline = if let Some(b) = best {
@@ -274,7 +274,7 @@ fn build_iteration_prompt(
         best_metric => best_metric,
         best_vs_baseline => best_vs_baseline,
         best_commit => best_commit,
-        baseline_metric => format!("{:.2}", baseline_metric),
+        baseline_metric => format_metric(baseline_metric),
         has_constraints => !config.constraints.is_empty(),
         constraints => &config.constraints,
         context => &config.context,
@@ -467,7 +467,7 @@ fn append_result(
             .find(|m| m.name == pm.name)
             .map(|m| m.value)
             .unwrap_or(0.0);
-        row.push(format!("{:.2}", value));
+        row.push(format_metric(value));
     }
 
     for constraint in &config.constraints {
@@ -476,7 +476,7 @@ fn append_result(
             .find(|m| m.name == constraint.name)
             .map(|m| m.value)
             .unwrap_or(0.0);
-        row.push(format!("{:.2}", value));
+        row.push(format_metric(value));
     }
 
     row.push(status.to_string());
@@ -598,11 +598,11 @@ fn print_iteration_summary(
     };
 
     println!(
-        "  [{:>3}] {} {:<10} {:>12.2}  {:<8} {} {:<8} {} ({:.1}s)",
+        "  [{:>3}] {} {:<10} {:>12}  {:<8} {} {:<8} {} ({:.1}s)",
         iteration,
         status_marker,
         commit,
-        primary,
+        format_metric(primary),
         vs_baseline,
         status_marker,
         status,
@@ -781,9 +781,9 @@ pub fn run_loop(
 
         append_result(config, tsv_path, "baseline", &metrics, "keep", "baseline")?;
         println!(
-            "  baseline: {} = {:.2} ({:.1}s)",
+            "  baseline: {} = {} ({:.1}s)",
             first_metric_name,
-            first_val,
+            format_metric(first_val),
             elapsed.as_secs_f64()
         );
         println!();

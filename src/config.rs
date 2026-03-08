@@ -213,3 +213,30 @@ impl Config {
         cols
     }
 }
+
+/// Format a metric value with adaptive precision.
+/// Uses enough decimal places to show at least 3 significant digits,
+/// but always at least 2 decimal places.
+pub fn format_metric(value: f64) -> String {
+    if value == 0.0 {
+        return "0.00".to_string();
+    }
+    let abs = value.abs();
+    if abs >= 1.0 {
+        // For values >= 1, two decimal places is fine
+        format!("{:.2}", value)
+    } else {
+        // For values < 1, we need more precision.
+        // Find how many leading zeros after the decimal point, then show 3 sig digits.
+        let digits_after_dot = if abs > 0.0 {
+            let log = -abs.log10().floor() as usize;
+            // e.g. 0.001 → log10 = -3 → 3 leading zeros → need 3 + 2 = 5 digits
+            // 0.29 → log10 = -0.537 → 0 leading zeros → need 0 + 2 = 2 digits
+            log + 2
+        } else {
+            2
+        };
+        let precision = digits_after_dot.max(2);
+        format!("{:.prec$}", value, prec = precision)
+    }
+}

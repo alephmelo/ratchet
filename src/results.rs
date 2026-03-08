@@ -1,16 +1,22 @@
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
-use crate::config::{Config, Direction};
+use crate::config::{format_metric, Config, Direction};
 
 /// A single row from results.tsv.
 struct Run {
     commit: String,
-    metric_value: f64,
+    metric_values: Vec<f64>,
     #[allow(dead_code)]
     constraint_values: Vec<f64>,
     status: String,
     description: String,
+}
+
+impl Run {
+    fn first_metric(&self) -> f64 {
+        self.metric_values.first().copied().unwrap_or(0.0)
+    }
 }
 
 /// Parse results.tsv and print a formatted summary.
@@ -33,7 +39,8 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     }
 
     // Parse rows
-    let num_metrics = config.primary_metrics().len();
+    let primary = config.primary_metrics();
+    let num_metrics = primary.len();
     let num_constraints = config.constraints.len();
     let mut runs: Vec<Run> = Vec::new();
 
@@ -52,11 +59,14 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             );
         }
 
-        // First metric value (for backward-compat display)
-        let metric_value: f64 = cols[1]
-            .trim()
-            .parse()
-            .with_context(|| format!("parsing metric on line {}", line_num + 2))?;
+        let mut metric_values = Vec::with_capacity(num_metrics);
+        for i in 0..num_metrics {
+            let v: f64 = cols[1 + i]
+                .trim()
+                .parse()
+                .with_context(|| format!("parsing metric {} on line {}", i, line_num + 2))?;
+            metric_values.push(v);
+        }
 
         let mut constraint_values = Vec::new();
         for i in 0..num_constraints {
@@ -72,7 +82,7 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
 
         runs.push(Run {
             commit: cols[0].trim().to_string(),
-            metric_value,
+            metric_values,
             constraint_values,
             status: cols[status_idx].trim().to_string(),
             description: if desc_idx < cols.len() {
@@ -88,12 +98,9 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let is_multi = config.is_multi_metric();
     let first_metric = config.first_metric();
     let direction = first_metric.direction;
-    let dir_symbol = match direction {
-        Direction::Maximize => "^",
-        Direction::Minimize => "v",
-    };
 
     // Stats
     let total = runs.len();
@@ -103,47 +110,71 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
 
     let kept_runs: Vec<&Run> = runs.iter().filter(|r| r.status == "keep").collect();
 
-    let best = match direction {
-        Direction::Maximize => kept_runs.iter().max_by(|a, b| {
-            a.metric_value
-                .partial_cmp(&b.metric_value)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        }),
-        Direction::Minimize => kept_runs.iter().min_by(|a, b| {
-            a.metric_value
-                .partial_cmp(&b.metric_value)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        }),
-    };
-
     // Find baseline (first row)
-    let baseline_value = runs[0].metric_value;
+    let baseline_values: Vec<f64> = runs[0].metric_values.clone();
 
     // Header
     println!();
-    println!(
-        "  {} — {} {} ({}) ",
-        config.name,
-        first_metric.name,
-        dir_symbol,
-        match direction {
-            Direction::Maximize => "higher is better",
-            Direction::Minimize => "lower is better",
-        }
-    );
+    if is_multi {
+        let metric_desc: Vec<String> = primary
+            .iter()
+            .map(|m| {
+                let sym = match m.direction {
+                    Direction::Maximize => "^",
+                    Direction::Minimize => "v",
+                };
+                format!("{} {}", m.name, sym)
+            })
+            .collect();
+        println!("  {} — Pareto: {} ", config.name, metric_desc.join(", "));
+    } else {
+        let dir_symbol = match direction {
+            Direction::Maximize => "^",
+            Direction::Minimize => "v",
+        };
+        println!(
+            "  {} — {} {} ({}) ",
+            config.name,
+            first_metric.name,
+            dir_symbol,
+            match direction {
+                Direction::Maximize => "higher is better",
+                Direction::Minimize => "lower is better",
+            }
+        );
+    }
     println!();
 
-    // Scoreboard
-    println!(
-        "  {:<10} {:>12}  {:<8} {:>1} {:<8} {}",
-        "commit", first_metric.name, "vs base", "", "status", "description"
-    );
-    println!("  {}", "-".repeat(76));
+    // Scoreboard header
+    if is_multi {
+        let mut header_parts = vec![format!("  {:<10}", "commit")];
+        for m in &primary {
+            header_parts.push(format!("{:>14}", m.name));
+        }
+        header_parts.push(format!(
+            "  {:<8} {:>1} {:<8} {}",
+            "vs base", "", "status", "description"
+        ));
+        println!("{}", header_parts.join(""));
+    } else {
+        println!(
+            "  {:<10} {:>12}  {:<8} {:>1} {:<8} {}",
+            "commit", first_metric.name, "vs base", "", "status", "description"
+        );
+    }
+    let separator_len = if is_multi {
+        76 + 14 * (num_metrics - 1)
+    } else {
+        76
+    };
+    println!("  {}", "-".repeat(separator_len));
 
     for run in &runs {
-        // Show improvement relative to baseline
-        let ratio = if baseline_value != 0.0 {
-            run.metric_value / baseline_value
+        // Show improvement relative to baseline (based on first metric)
+        let first_val = run.first_metric();
+        let baseline_first = baseline_values[0];
+        let ratio = if baseline_first != 0.0 {
+            first_val / baseline_first
         } else {
             1.0
         };
@@ -151,7 +182,6 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         let delta_str = if run.commit == "baseline" {
             String::new()
         } else if ratio >= 10.0 || ratio <= 0.1 {
-            // Use multiplier for large changes
             format!("{:.0}x", ratio)
         } else {
             let pct = (ratio - 1.0) * 100.0;
@@ -165,13 +195,30 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             _ => "?",
         };
 
-        println!(
-            "  {:<10} {:>12.2}  {:<8} {} {:<8} {}",
-            run.commit, run.metric_value, delta_str, status_marker, run.status, run.description
-        );
+        if is_multi {
+            let mut parts = vec![format!("  {:<10}", run.commit)];
+            for val in &run.metric_values {
+                parts.push(format!("{:>14}", format_metric(*val)));
+            }
+            parts.push(format!(
+                "  {:<8} {} {:<8} {}",
+                delta_str, status_marker, run.status, run.description
+            ));
+            println!("{}", parts.join(""));
+        } else {
+            println!(
+                "  {:<10} {:>12}  {:<8} {} {:<8} {}",
+                run.commit,
+                format_metric(first_val),
+                delta_str,
+                status_marker,
+                run.status,
+                run.description
+            );
+        }
     }
 
-    println!("  {}", "-".repeat(76));
+    println!("  {}", "-".repeat(separator_len));
 
     // Summary
     println!();
@@ -180,26 +227,90 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         total, kept, discarded, crashed
     );
 
-    if let Some(best) = best {
-        let ratio = if baseline_value != 0.0 {
-            best.metric_value / baseline_value
-        } else {
-            1.0
+    if is_multi {
+        // Show best for each metric individually
+        for (i, m) in primary.iter().enumerate() {
+            let best = match m.direction {
+                Direction::Maximize => kept_runs.iter().max_by(|a, b| {
+                    a.metric_values[i]
+                        .partial_cmp(&b.metric_values[i])
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }),
+                Direction::Minimize => kept_runs.iter().min_by(|a, b| {
+                    a.metric_values[i]
+                        .partial_cmp(&b.metric_values[i])
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }),
+            };
+            if let Some(best) = best {
+                let baseline_val = baseline_values[i];
+                let improvement_str = if baseline_val != 0.0 {
+                    let r = best.metric_values[i] / baseline_val;
+                    if r >= 10.0 || r <= 0.1 {
+                        format!("{:.0}x vs baseline", r)
+                    } else {
+                        let pct = (r - 1.0) * 100.0;
+                        format!("{:+.1}% vs baseline", pct)
+                    }
+                } else {
+                    String::new()
+                };
+                println!(
+                    "  best {}: {}  ({})  [{}]",
+                    m.name,
+                    format_metric(best.metric_values[i]),
+                    improvement_str,
+                    best.commit
+                );
+            }
+        }
+        for (i, m) in primary.iter().enumerate() {
+            println!(
+                "  baseline:  {} = {}",
+                m.name,
+                format_metric(baseline_values[i])
+            );
+        }
+    } else {
+        let best = match direction {
+            Direction::Maximize => kept_runs.iter().max_by(|a, b| {
+                a.first_metric()
+                    .partial_cmp(&b.first_metric())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }),
+            Direction::Minimize => kept_runs.iter().min_by(|a, b| {
+                a.first_metric()
+                    .partial_cmp(&b.first_metric())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }),
         };
-        let improvement_str = if ratio >= 10.0 || ratio <= 0.1 {
-            format!("{:.0}x vs baseline", ratio)
-        } else {
-            let pct = (ratio - 1.0) * 100.0;
-            format!("{:+.1}% vs baseline", pct)
-        };
-        println!(
-            "  best:        {} = {:.2}  ({})  [{}]",
-            first_metric.name, best.metric_value, improvement_str, best.commit
-        );
-        println!(
-            "  baseline:    {} = {:.2}",
-            first_metric.name, baseline_value
-        );
+
+        if let Some(best) = best {
+            let baseline_val = baseline_values[0];
+            let ratio = if baseline_val != 0.0 {
+                best.first_metric() / baseline_val
+            } else {
+                1.0
+            };
+            let improvement_str = if ratio >= 10.0 || ratio <= 0.1 {
+                format!("{:.0}x vs baseline", ratio)
+            } else {
+                let pct = (ratio - 1.0) * 100.0;
+                format!("{:+.1}% vs baseline", pct)
+            };
+            println!(
+                "  best:        {} = {}  ({})  [{}]",
+                first_metric.name,
+                format_metric(best.first_metric()),
+                improvement_str,
+                best.commit
+            );
+            println!(
+                "  baseline:    {} = {}",
+                first_metric.name,
+                format_metric(baseline_values[0])
+            );
+        }
     }
 
     println!();

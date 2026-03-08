@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::config::{Config, Direction};
+use crate::config::{format_metric, Config, Direction};
 
 /// Parsed metric from benchmark output.
 struct MetricResult {
@@ -135,7 +135,12 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
         } else {
             ""
         };
-        println!("    {:<20} {:>12.2}{}", m.name, m.value, marker);
+        println!(
+            "    {:<20} {:>12}{}",
+            m.name,
+            format_metric(m.value),
+            marker
+        );
     }
 
     println!();
@@ -150,32 +155,40 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
             if let Some(limit) = constraint.fail_above {
                 if m.value > limit {
                     violations.push(format!(
-                        "{} = {:.2} (fail_above: {})",
-                        m.name, m.value, limit
+                        "{} = {} (fail_above: {})",
+                        m.name,
+                        format_metric(m.value),
+                        limit
                     ));
                 }
             }
             if let Some(limit) = constraint.fail_below {
                 if m.value < limit {
                     violations.push(format!(
-                        "{} = {:.2} (fail_below: {})",
-                        m.name, m.value, limit
+                        "{} = {} (fail_below: {})",
+                        m.name,
+                        format_metric(m.value),
+                        limit
                     ));
                 }
             }
             if let Some(limit) = constraint.warn_above {
                 if m.value > limit {
                     warnings.push(format!(
-                        "{} = {:.2} (warn_above: {})",
-                        m.name, m.value, limit
+                        "{} = {} (warn_above: {})",
+                        m.name,
+                        format_metric(m.value),
+                        limit
                     ));
                 }
             }
             if let Some(limit) = constraint.warn_below {
                 if m.value < limit {
                     warnings.push(format!(
-                        "{} = {:.2} (warn_below: {})",
-                        m.name, m.value, limit
+                        "{} = {} (warn_below: {})",
+                        m.name,
+                        format_metric(m.value),
+                        limit
                     ));
                 }
             }
@@ -215,18 +228,18 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
             println!();
             if ratio >= 10.0 || ratio <= 0.1 {
                 println!(
-                    "  vs baseline: {:.2} -> {:.2} ({:.0}x) {}",
-                    baseline_val,
-                    primary.value,
+                    "  vs baseline: {} -> {} ({:.0}x) {}",
+                    format_metric(baseline_val),
+                    format_metric(primary.value),
                     ratio,
                     if is_better { "BETTER" } else { "WORSE" }
                 );
             } else {
                 let pct = (ratio - 1.0) * 100.0;
                 println!(
-                    "  vs baseline: {:.2} -> {:.2} ({:+.1}%) {}",
-                    baseline_val,
-                    primary.value,
+                    "  vs baseline: {} -> {} ({:+.1}%) {}",
+                    format_metric(baseline_val),
+                    format_metric(primary.value),
                     pct,
                     if is_better { "BETTER" } else { "WORSE" }
                 );
