@@ -12,28 +12,58 @@ predicted labels (integers) for each query point.
 Returns: list of Q integer labels
 """
 
+from array import array
 import heapq
 
 
 def predict(train_X, train_y, query_X, k):
-    """KNN using a KD-tree for fast neighbor lookup."""
+    """KNN using a KD-tree with bounding-box pruning and unrolled distance."""
     D = len(train_X[0])
     n_train = len(train_X)
 
-    # Flatten training data for cache-friendly access
-    flat = []
+    # Use array for cache-friendly flat storage
+    flat = array("d")
     for p in train_X:
         flat.extend(p)
 
     labels = train_y
 
-    # Build KD-tree
-    LEAF_SIZE = 24
+    # Build KD-tree with bounding boxes for pruning
+    # Node format for internal: (dim, split_val, left, right, bbox_min, bbox_max)
+    # Node format for leaf: list of (index, label) pairs + precomputed coords
+    LEAF_SIZE = 32
+
+    INF = float("inf")
+    NINF = float("-inf")
 
     def build(indices, depth):
         n = len(indices)
         if n <= LEAF_SIZE:
-            return indices  # leaf: just a list of indices
+            # Store leaf as tuple: (leaf_data,)
+            # leaf_data is a tuple of (coord_tuple, label) for each point
+            leaf_data = []
+            for i in indices:
+                base = i * D
+                coords = (
+                    flat[base],
+                    flat[base + 1],
+                    flat[base + 2],
+                    flat[base + 3],
+                    flat[base + 4],
+                    flat[base + 5],
+                    flat[base + 6],
+                    flat[base + 7],
+                    flat[base + 8],
+                    flat[base + 9],
+                    flat[base + 10],
+                    flat[base + 11],
+                    flat[base + 12],
+                    flat[base + 13],
+                    flat[base + 14],
+                    flat[base + 15],
+                )
+                leaf_data.append((coords, labels[i]))
+            return (leaf_data,)
 
         dim = depth % D
         indices.sort(key=lambda i: flat[i * D + dim])
@@ -45,46 +75,88 @@ def predict(train_X, train_y, query_X, k):
 
     tree = build(list(range(n_train)), 0)
 
-    # Query
+    # Query - optimized
     predictions = []
     heappush = heapq.heappush
     heapreplace = heapq.heapreplace
+    pred_append = predictions.append
 
     for query in query_X:
-        q = query
+        # Unpack query into local vars for fastest access
+        q0, q1, q2, q3 = query[0], query[1], query[2], query[3]
+        q4, q5, q6, q7 = query[4], query[5], query[6], query[7]
+        q8, q9, q10, q11 = query[8], query[9], query[10], query[11]
+        q12, q13, q14, q15 = query[12], query[13], query[14], query[15]
+        q_tuple = (q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15)
+
         heap = []
         heap_size = 0
-        worst = float("inf")
+        worst = INF
 
         stack = [tree]
         while stack:
             node = stack.pop()
+            node_len = len(node)
 
-            if isinstance(node, list):
-                # Leaf node
-                for i in node:
-                    base = i * D
-                    dist_sq = 0.0
-                    d = 0
-                    while d < D:
-                        diff = q[d] - flat[base + d]
-                        dist_sq += diff * diff
-                        if dist_sq >= worst:
-                            break
-                        d += 1
-                    else:
-                        neg = -dist_sq
-                        if heap_size < k:
-                            heappush(heap, (neg, labels[i]))
-                            heap_size += 1
-                            if heap_size == k:
-                                worst = -heap[0][0]
-                        else:
-                            heapreplace(heap, (neg, labels[i]))
+            if node_len == 1:
+                # Leaf node - node[0] is list of (coords_tuple, label)
+                leaf_data = node[0]
+                for cl in leaf_data:
+                    coords = cl[0]
+                    # Unrolled distance computation for D=16 with early termination
+                    diff = q0 - coords[0]
+                    dist_sq = diff * diff
+                    diff = q1 - coords[1]
+                    dist_sq += diff * diff
+                    diff = q2 - coords[2]
+                    dist_sq += diff * diff
+                    diff = q3 - coords[3]
+                    dist_sq += diff * diff
+                    if dist_sq >= worst:
+                        continue
+                    diff = q4 - coords[4]
+                    dist_sq += diff * diff
+                    diff = q5 - coords[5]
+                    dist_sq += diff * diff
+                    diff = q6 - coords[6]
+                    dist_sq += diff * diff
+                    diff = q7 - coords[7]
+                    dist_sq += diff * diff
+                    if dist_sq >= worst:
+                        continue
+                    diff = q8 - coords[8]
+                    dist_sq += diff * diff
+                    diff = q9 - coords[9]
+                    dist_sq += diff * diff
+                    diff = q10 - coords[10]
+                    dist_sq += diff * diff
+                    diff = q11 - coords[11]
+                    dist_sq += diff * diff
+                    if dist_sq >= worst:
+                        continue
+                    diff = q12 - coords[12]
+                    dist_sq += diff * diff
+                    diff = q13 - coords[13]
+                    dist_sq += diff * diff
+                    diff = q14 - coords[14]
+                    dist_sq += diff * diff
+                    diff = q15 - coords[15]
+                    dist_sq += diff * diff
+                    if dist_sq >= worst:
+                        continue
+
+                    neg = -dist_sq
+                    if heap_size < k:
+                        heappush(heap, (neg, cl[1]))
+                        heap_size += 1
+                        if heap_size == k:
                             worst = -heap[0][0]
+                    else:
+                        heapreplace(heap, (neg, cl[1]))
+                        worst = -heap[0][0]
             else:
                 dim, split_val, left, right = node
-                diff = q[dim] - split_val
+                diff = q_tuple[dim] - split_val
                 if diff <= 0:
                     near, far = left, right
                 else:
@@ -99,6 +171,6 @@ def predict(train_X, train_y, query_X, k):
         for _, label in heap:
             votes[label] = votes.get(label, 0) + 1
         best_label = max(votes, key=votes.get)
-        predictions.append(best_label)
+        pred_append(best_label)
 
     return predictions
