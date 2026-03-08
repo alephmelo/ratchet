@@ -6,12 +6,19 @@ A toy e2e example for ratchet. An AI agent optimizes a sorting function for thro
 
 | File | Role |
 |---|---|
-| `sort.py` | **Editable** -- starts as bubble sort (~85 arrays/sec). The agent improves this. |
+| `sort_baseline.py` | **Starting point** -- the original bubble sort (~85 arrays/sec). Copy to `sort.py` to start fresh. |
+| `sort.py` | **Editable** -- the agent's best result after optimization (C counting sort, ~71k arrays/sec). |
 | `benchmark.py` | **Immutable** -- times `my_sort()` on 200 random arrays of 500 integers, checks correctness, prints metrics. |
 | `ratchet.yaml` | Config -- maximize `throughput`, `correctness` must stay at 100%. |
 | `results.tsv` | Experiment log from a sample run. |
 
 ## Running
+
+To start from scratch, copy the baseline over:
+
+```bash
+cp sort_baseline.py sort.py
+```
 
 Generate the agent instructions:
 
@@ -68,3 +75,26 @@ The agent went from bubble sort (85 arrays/sec) to a C extension counting sort (
 - **Massive improvement gradient** -- bubble sort is O(n^2). Even `return sorted(arr)` jumps to ~8,000+ arrays/sec.
 - **Hard constraint** -- the agent can't cheat; correctness must remain 100%.
 - **Room for creativity** -- after the obvious wins, the agent can explore radix sort, numpy, C extensions, etc.
+
+## Before and after
+
+**Before** (`sort_baseline.py`) -- bubble sort, 85 arrays/sec:
+
+```python
+def my_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+```
+
+**After** (`sort.py`) -- C extension counting sort with numpy fallback, 71,396 arrays/sec:
+
+```python
+def my_sort(arr):
+    return _fast_sort(arr)  # C counting sort compiled at import time
+```
+
+The agent wrote a C extension that compiles at import time, using counting sort for O(n+k) complexity on the known value range [0, 5000). Falls back to numpy uint16 radix sort if compilation fails.
