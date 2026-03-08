@@ -1,0 +1,31 @@
+name: "autoresearch"
+
+editable:
+  - train.py
+
+readonly:
+  - prepare.py
+
+run: "uv run train.py"
+
+metric:
+  name: val_bpb
+  grep: "^val_bpb:"
+  direction: minimize
+
+constraints:
+  - name: peak_vram_mb
+    grep: "^peak_vram_mb:"
+    warn_above: 50000.0
+
+timeout: 300
+
+baseline:
+  val_bpb: 0.997900
+  peak_vram_mb: 45060.2
+
+context: |
+  This is a GPT pretraining script on a single GPU. The training runs
+  for a fixed 5-minute time budget. You can modify the model architecture,
+  optimizer, hyperparameters, batch size, model size — anything in train.py.
+  The evaluation (val_bpb = bits per byte) is fixed in prepare.py.

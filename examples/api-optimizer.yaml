@@ -1,0 +1,32 @@
+name: "api-throughput-optimizer"
+
+editable:
+  - server.py
+
+readonly:
+  - benchmark.py
+
+run: "uv run benchmark.py"
+
+metric:
+  name: rps
+  grep: "^rps:"
+  direction: maximize
+
+constraints:
+  - name: p99_ms
+    grep: "^p99_ms:"
+    warn_above: 50.0
+
+  - name: error_rate
+    grep: "^error_rate:"
+    fail_above: 0.0
+
+timeout: 120
+
+context: |
+  This is a FastAPI server serving a REST API with CRUD endpoints.
+  The benchmark runs 100 concurrent connections for 60 seconds against
+  the server. Focus on throughput optimizations like caching, async
+  patterns, serialization (orjson/msgspec), data structures, and
+  middleware reduction.
