@@ -5,3 +5,4 @@ af694fe	33089.98	100.0	keep	use built-in sorted()
 22f00d2	6153.36	100.0	discard	counting sort -- pure Python loops too slow vs C timsort
 f6b82ca	35599.33	100.0	keep	numpy introsort on contiguous int64 array
 9b9552e	45964.69	100.0	keep	int32 instead of int64 for better cache utilization
+f37d0c1	49704.88	100.0	keep	int16 -- values fit in 16 bits
