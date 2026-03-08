@@ -1,0 +1,7 @@
+commit	throughput	accuracy	status	description
+baseline	380.00	100.00	keep	baseline
+8d7d584	1275.18	100.00	keep	heapq.nsmallest, skip sqrt, early termination on partial distance
+8979e8c	3277.71	100.00	keep	KD-tree with leaf_size=24, stack-based traversal
+1df30d6	4507.38	100.00	keep	array module for flat storage, unrolled 16-dim distance, bounding-box pruning
+ff6a482	5132.60	100.00	keep	inline top-5 tracking (no heapq), interleaved early termination every 2 dims
+a5f0885	6698.31	100.00	keep	variance-reordered dimensions for better pruning

@@ -224,7 +224,7 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 ## Examples
 
 - **[sort-benchmark](examples/sort-benchmark/)** -- bubble sort to C extension counting sort in 8 experiments (85 -> 71,396 arrays/sec, 840x). A good e2e test.
-- **[knn-benchmark](examples/knn-benchmark/)** -- brute-force KNN to ??? (~380 queries/sec baseline). Pure Python, zero dependencies. Try it yourself.
+- **[knn-benchmark](examples/knn-benchmark/)** -- brute-force KNN to KD-tree with variance-reordered dims in 5 experiments (380 -> 6,698 queries/sec, 18x). Pure Python, zero dependencies.
 - **[autoresearch](examples/autoresearch.yaml)** -- Karpathy's GPT pretraining optimization as a ratchet config.
 - **[api-optimizer](examples/api-optimizer.yaml)** -- maximize API throughput with p99 latency and error rate constraints.
 
