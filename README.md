@@ -119,6 +119,29 @@ ratchet check [--config ratchet.yaml]
 
 Validate config without generating anything.
 
+```
+ratchet results [--config ratchet.yaml] [--results results.tsv]
+```
+
+Display experiment scoreboard from `results.tsv`. Shows each experiment's metric value, improvement vs baseline, keep/discard/crash status, and a summary with the best result.
+
+```
+  sort-benchmark — throughput ^ (higher is better)
+
+  commit       throughput  vs base    status   description
+  ----------------------------------------------------------------------------
+  baseline          85.00           + keep     bubble sort baseline
+  af694fe        33089.98  389x     + keep     use built-in sorted()
+  8214d37        33854.79  398x     + keep     in-place list.sort() avoids allocation
+  22f00d2         6153.36  72x      - discard  counting sort -- pure Python loops too slow
+  f37d0c1        49704.88  585x     + keep     int16 -- values fit in 16 bits
+  ----------------------------------------------------------------------------
+
+  experiments: 5  (kept: 4, discarded: 1, crashed: 0)
+  best:        throughput = 49704.88  (585x vs baseline)  [f37d0c1]
+  baseline:    throughput = 85.00
+```
+
 ## The pattern
 
 Ratchet encodes a universal optimization loop with four components:
@@ -138,12 +161,12 @@ The generated `program.md` instructs the agent to:
 
 ### sort-benchmark
 
-A self-contained e2e test. An agent optimizes a bubble sort for throughput. See [`examples/sort-benchmark/`](examples/sort-benchmark/).
+A self-contained e2e test. An agent optimizes a bubble sort for throughput. Includes a sample run with results (85 -> 49,704 arrays/sec, 585x improvement). See [`examples/sort-benchmark/`](examples/sort-benchmark/).
 
 ```bash
 cd examples/sort-benchmark
-ratchet init
-# hand program.md to your agent
+ratchet init       # generate program.md for your agent
+ratchet results    # view the experiment scoreboard
 ```
 
 ### autoresearch
