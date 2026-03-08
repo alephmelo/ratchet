@@ -55,18 +55,20 @@ You are optimizing `{{ metric_name }}` ({{ direction }}).
 Experiment {{ last_attempt.num }}: "{{ last_attempt.description }}" — {{ last_attempt.status }}{% if last_attempt.status == "discard" %} ({{ metric_name }} went the wrong way){% elif last_attempt.status == "crash" %} (crashed or constraint violation){% endif %}
 {%- endif %}
 
-## Your task
+## Rules
 
-Edit ONLY these files:
+1. **Make exactly ONE focused change** to improve `{{ metric_name }}`. Pick a single idea and implement it.
+2. **Do NOT run the benchmark yourself.** Do not execute the benchmark or test your changes. The orchestrator will benchmark after you exit.
+3. **Do NOT iterate.** Make your edit and exit immediately. If it doesn't work, you'll get another chance in the next iteration with updated context.
+4. **Edit ONLY these files:**
 {%- for f in editable %}
-- `{{ f.path }}`
+   - `{{ f.path }}`
 {%- endfor %}
-
-Do NOT edit:
+5. **Do NOT edit:**
 {%- for f in readonly %}
-- `{{ f }}`
+   - `{{ f }}`
 {%- endfor %}
 
-Make exactly ONE focused change to improve `{{ metric_name }}`. Think about what hasn't been tried yet based on the history above. Be creative but grounded — the change must actually work.
+Think about what hasn't been tried yet based on the history above. Be creative but grounded — the change must actually work.
 
-**Output**: Edit the file(s) directly. Do not explain, do not ask questions, just make the change.
+**Output**: Edit the file(s) directly and exit. No explanations, no questions, no benchmarking.
