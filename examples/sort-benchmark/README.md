@@ -52,18 +52,19 @@ After running the optimization loop, view the scoreboard with `ratchet results`:
   9b9552e        45964.69  541x     + keep     int32 instead of int64 for better cache utilization
   f37d0c1        49704.88  585x     + keep     int16 -- values fit in 16 bits
   8aaad3b        44018.12  518x     - discard  np.sort stable returns new array -- extra allocation hurts
+  a54fe56        71396.70  840x     + keep     C extension counting sort with numpy fallback
   ----------------------------------------------------------------------------
 
-  experiments: 8  (kept: 6, discarded: 2, crashed: 0)
-  best:        throughput = 49704.88  (585x vs baseline)  [f37d0c1]
+  experiments: 9  (kept: 7, discarded: 2, crashed: 0)
+  best:        throughput = 71396.70  (840x vs baseline)  [a54fe56]
   baseline:    throughput = 85.00
 ```
 
-The agent went from bubble sort (85 arrays/sec) to numpy int16 sort (49,704 arrays/sec) -- a **585x improvement** in 7 experiments.
+The agent went from bubble sort (85 arrays/sec) to a C extension counting sort (71,396 arrays/sec) -- an **840x improvement** in 8 experiments.
 
 ## Why this is a good test
 
 - **Fast feedback** -- each run takes ~2 seconds.
 - **Massive improvement gradient** -- bubble sort is O(n^2). Even `return sorted(arr)` jumps to ~8,000+ arrays/sec.
 - **Hard constraint** -- the agent can't cheat; correctness must remain 100%.
-- **Room for creativity** -- after the obvious wins, the agent can explore radix sort, numpy, ctypes, etc.
+- **Room for creativity** -- after the obvious wins, the agent can explore radix sort, numpy, C extensions, etc.

@@ -122,11 +122,11 @@ cargo build --release
   baseline          85.00           + keep     bubble sort baseline
   af694fe        33089.98  389x     + keep     use built-in sorted()
   22f00d2         6153.36  72x      - discard  counting sort -- pure Python loops too slow
-  f37d0c1        49704.88  585x     + keep     int16 -- values fit in 16 bits
+  a54fe56        71396.70  840x     + keep     C extension counting sort with numpy fallback
   ----------------------------------------------------------------------------
 
   experiments: 4  (kept: 3, discarded: 1, crashed: 0)
-  best:        throughput = 49704.88  (585x vs baseline)  [f37d0c1]
+  best:        throughput = 71396.70  (840x vs baseline)  [a54fe56]
   baseline:    throughput = 85.00
 ```
 
@@ -188,15 +188,16 @@ The `{prompt}` placeholder is replaced with the path to a generated prompt file.
   sort-benchmark — throughput ^ (higher is better)
 
   +     base █      85.00
-  +  af694fe █████████████████████████████████   33089.98
-  +  8214d37 ██████████████████████████████████   33854.79
-  -  22f00d2 ░░░░░░    6153.36
-  +  f6b82ca ███████████████████████████████████   35599.33
-  +  9b9552e ██████████████████████████████████████████████   45964.69
-  +  f37d0c1 ██████████████████████████████████████████████████   49704.88 *
-  -  8aaad3b ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   44018.12
+  +  af694fe ███████████████████████   33089.98
+  +  8214d37 ████████████████████████   33854.79
+  -  22f00d2 ████    6153.36
+  +  f6b82ca █████████████████████████   35599.33
+  +  9b9552e ████████████████████████████████   45964.69
+  +  f37d0c1 ███████████████████████████████████   49704.88
+  -  8aaad3b ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   44018.12
+  +  a54fe56 ██████████████████████████████████████████████████   71396.70 *
 
-  █ kept (6/8)  ░ discarded/crashed  * best: 49704.88 (585x)
+  █ kept (7/9)  ░ discarded/crashed  * best: 71396.70 (840x)
 ```
 
 All commands accept `--config <path>` (default: `ratchet.yaml`).
@@ -220,7 +221,7 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 
 ## Examples
 
-- **[sort-benchmark](examples/sort-benchmark/)** -- bubble sort to numpy in 7 experiments (85 -> 49,704 arrays/sec, 585x). A good e2e test.
+- **[sort-benchmark](examples/sort-benchmark/)** -- bubble sort to C extension counting sort in 8 experiments (85 -> 71,396 arrays/sec, 840x). A good e2e test.
 - **[autoresearch](examples/autoresearch.yaml)** -- Karpathy's GPT pretraining optimization as a ratchet config.
 - **[api-optimizer](examples/api-optimizer.yaml)** -- maximize API throughput with p99 latency and error rate constraints.
 
