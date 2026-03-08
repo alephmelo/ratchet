@@ -1,2 +1,3 @@
 commit	throughput	correctness	status	description
 baseline	85.0	100.0	keep	bubble sort baseline
+af694fe	33089.98	100.0	keep	use built-in sorted()
