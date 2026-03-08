@@ -1,5 +1,6 @@
 mod config;
 mod generate;
+mod results;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -33,6 +34,17 @@ enum Commands {
         #[arg(short, long, default_value = "ratchet.yaml")]
         config: PathBuf,
     },
+
+    /// Show experiment results from results.tsv
+    Results {
+        /// Path to config file
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+
+        /// Path to results file
+        #[arg(short, long, default_value = "results.tsv")]
+        results: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -64,6 +76,14 @@ fn main() -> Result<()> {
             );
             println!("  constraints: {}", cfg.constraints.len());
             println!("  timeout:     {}s", cfg.timeout);
+        }
+        Commands::Results {
+            config,
+            results: tsv_path,
+        } => {
+            let cfg = config::Config::from_file(&config)
+                .with_context(|| format!("loading config from {}", config.display()))?;
+            results::show_results(&cfg, &tsv_path)?;
         }
     }
 
