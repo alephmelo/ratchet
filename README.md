@@ -1,10 +1,89 @@
 # ratchet
 
-A CLI that generates autonomous optimization instructions for AI coding agents.
+Point an AI agent at your code, tell it what number to improve, and let it run forever.
 
-You write a `ratchet.yaml` describing what to optimize. Ratchet generates a `program.md` -- a complete set of instructions that any AI coding agent (Claude Code, Codex, etc.) can follow to run an autonomous edit-run-measure-ratchet loop: edit code, run the experiment, measure the metric, keep if better, revert if worse, repeat forever.
+Ratchet generates a `program.md` from a simple YAML config. You hand that file to any AI coding agent (Claude Code, Codex, OpenCode, etc.) and it runs an autonomous loop: edit code, run experiment, measure metric, keep if better, revert if worse, repeat.
 
-Ratchet is a **prompt generator**, not a runtime. It encodes the [autoresearch](https://github.com/karpathy/autoresearch) pattern into a reusable framework.
+Inspired by Karpathy's [autoresearch](https://github.com/karpathy/autoresearch).
+
+## How it works
+
+You need three things:
+
+1. **Code to optimize** -- one or more files the agent can edit
+2. **A benchmark** -- a command that runs and prints a number
+3. **A direction** -- maximize or minimize that number
+
+Ratchet does the rest. It generates detailed instructions that tell the agent how to run the loop, track results in a TSV, use git to commit improvements and revert failures, and never stop until you interrupt it.
+
+## Apply it to your project
+
+Any project where you can measure a single number works. Write a `ratchet.yaml`:
+
+```yaml
+name: "my-project"
+
+editable:
+  - src/model.py          # files the agent can change
+
+readonly:
+  - benchmark.py          # files it should read but not touch
+
+run: "python benchmark.py"
+
+metric:
+  name: accuracy
+  grep: "^accuracy:"       # how to extract the number from stdout
+  direction: maximize       # or minimize
+
+timeout: 300
+```
+
+Then:
+
+```bash
+ratchet init               # generates program.md
+# hand program.md to your AI agent
+```
+
+That's it. The agent takes over from there.
+
+### Ideas for what to optimize
+
+| Project | Metric | Direction |
+|---|---|---|
+| ML training script | val_loss | minimize |
+| API server | requests/sec | maximize |
+| Compiler pass | binary size | minimize |
+| Game AI | win rate | maximize |
+| Image pipeline | processing time | minimize |
+| Search engine | relevance score | maximize |
+| Sorting algorithm | throughput | maximize |
+
+### Adding constraints
+
+If you need to keep a secondary metric in check (e.g. "make it faster but don't break correctness"), add constraints:
+
+```yaml
+constraints:
+  - name: correctness
+    grep: "^correctness:"
+    fail_below: 100.0       # hard limit -- revert if violated
+
+  - name: memory_mb
+    grep: "^memory_mb:"
+    warn_above: 512.0       # soft limit -- warn but don't revert
+```
+
+### Providing baselines
+
+If you already know the current numbers, include them so the agent doesn't waste a run measuring them:
+
+```yaml
+baseline:
+  accuracy: 0.847
+  correctness: 100.0
+```
 
 ## Install
 
@@ -19,69 +98,59 @@ cargo build --release
 # binary at target/release/ratchet
 ```
 
-## Quickstart
+## Commands
 
-### 1. Write a config
+**`ratchet init`** -- generate `program.md` from `ratchet.yaml`
 
-Create `ratchet.yaml` in your project:
+**`ratchet check`** -- validate config without generating
 
-```yaml
-name: "sort-benchmark"
-
-editable:
-  - sort.py
-
-readonly:
-  - benchmark.py
-
-run: "python3 benchmark.py"
-
-metric:
-  name: throughput
-  grep: "^throughput:"
-  direction: maximize
-
-constraints:
-  - name: correctness
-    grep: "^correctness:"
-    fail_below: 100.0
-
-timeout: 30
-
-baseline:
-  throughput: 85.0
-  correctness: 100.0
-
-context: |
-  This is a pure-Python sorting benchmark. You can only edit sort.py.
-  The function my_sort(arr) must return a sorted list in ascending order.
-  The starting implementation is bubble sort -- there is enormous room
-  for improvement.
-```
-
-### 2. Validate
-
-```bash
-ratchet check
-```
+**`ratchet results`** -- display experiment scoreboard
 
 ```
-Config OK: sort-benchmark
-  editable:    ["sort.py"]
-  readonly:    ["benchmark.py"]
-  run:         python3 benchmark.py
-  metric:      throughput (maximize)
-  constraints: 1
-  timeout:     30s
+  sort-benchmark — throughput ^ (higher is better)
+
+  commit       throughput  vs base    status   description
+  ----------------------------------------------------------------------------
+  baseline          85.00           + keep     bubble sort baseline
+  af694fe        33089.98  389x     + keep     use built-in sorted()
+  22f00d2         6153.36  72x      - discard  counting sort -- pure Python loops too slow
+  f37d0c1        49704.88  585x     + keep     int16 -- values fit in 16 bits
+  ----------------------------------------------------------------------------
+
+  experiments: 4  (kept: 3, discarded: 1, crashed: 0)
+  best:        throughput = 49704.88  (585x vs baseline)  [f37d0c1]
+  baseline:    throughput = 85.00
 ```
 
-### 3. Generate
+**`ratchet run`** -- execute the benchmark command, parse metrics, check constraints, and compare against baseline
 
-```bash
-ratchet init
+```
+  running: python3 benchmark.py
+
+  results:
+
+    throughput               47107.78 ^
+    correctness                100.00
+
+  elapsed: 0.19s
+
+  vs baseline: 85.00 -> 47107.78 (554x) BETTER
 ```
 
-This creates `program.md` -- hand it to your AI coding agent.
+**`ratchet diff`** -- show git diff of editable files
+
+- `ratchet diff` -- full experiment diff (merge-base to HEAD)
+- `ratchet diff --commit <hash>` -- diff a specific commit against its parent
+- `ratchet diff --best` -- diff the best-scoring commit from `results.tsv`
+
+```
+  diff at best result [f37d0c1]:
+
+  -    a = np.array(arr, dtype=np.int32)
+  +    a = np.array(arr, dtype=np.int16)
+```
+
+All commands accept `--config <path>` (default: `ratchet.yaml`).
 
 ## Config reference
 
@@ -95,87 +164,15 @@ This creates `program.md` -- hand it to your AI coding agent.
 | `metric.grep` | yes | Grep pattern to extract the metric from stdout |
 | `metric.direction` | yes | `maximize` or `minimize` |
 | `constraints` | no | Secondary metrics with thresholds |
-| `constraints[].name` | yes | Constraint metric name |
-| `constraints[].grep` | yes | Grep pattern for this constraint |
-| `constraints[].warn_above` | no | Soft upper limit (warn) |
-| `constraints[].warn_below` | no | Soft lower limit (warn) |
-| `constraints[].fail_above` | no | Hard upper limit (revert on violation) |
-| `constraints[].fail_below` | no | Hard lower limit (revert on violation) |
 | `timeout` | no | Max seconds per run (default: 600) |
 | `baseline` | no | Known baseline values (avoids re-running) |
 | `context` | no | Free-text domain hints for the agent |
 
-## Commands
-
-```
-ratchet init [--config ratchet.yaml] [--output program.md]
-```
-
-Validate config and generate `program.md`.
-
-```
-ratchet check [--config ratchet.yaml]
-```
-
-Validate config without generating anything.
-
-```
-ratchet results [--config ratchet.yaml] [--results results.tsv]
-```
-
-Display experiment scoreboard from `results.tsv`. Shows each experiment's metric value, improvement vs baseline, keep/discard/crash status, and a summary with the best result.
-
-```
-  sort-benchmark — throughput ^ (higher is better)
-
-  commit       throughput  vs base    status   description
-  ----------------------------------------------------------------------------
-  baseline          85.00           + keep     bubble sort baseline
-  af694fe        33089.98  389x     + keep     use built-in sorted()
-  8214d37        33854.79  398x     + keep     in-place list.sort() avoids allocation
-  22f00d2         6153.36  72x      - discard  counting sort -- pure Python loops too slow
-  f37d0c1        49704.88  585x     + keep     int16 -- values fit in 16 bits
-  ----------------------------------------------------------------------------
-
-  experiments: 5  (kept: 4, discarded: 1, crashed: 0)
-  best:        throughput = 49704.88  (585x vs baseline)  [f37d0c1]
-  baseline:    throughput = 85.00
-```
-
-## The pattern
-
-Ratchet encodes a universal optimization loop with four components:
-
-1. **Immutable evaluation harness** -- the `run` command and `readonly` files. Never modified.
-2. **Mutable code** -- the `editable` files. The agent's search space.
-3. **Scalar metric + direction** -- a single number to optimize, extracted via grep.
-4. **Git-based ratchet** -- commit improvements, revert regressions. The metric only moves in one direction.
-
-The generated `program.md` instructs the agent to:
-- Create a branch, read the code, record the baseline
-- Loop forever: edit code, commit, run, measure, keep or revert
-- Log every attempt to `results.tsv`
-- Never stop until interrupted
-
 ## Examples
 
-### sort-benchmark
-
-A self-contained e2e test. An agent optimizes a bubble sort for throughput. Includes a sample run with results (85 -> 49,704 arrays/sec, 585x improvement). See [`examples/sort-benchmark/`](examples/sort-benchmark/).
-
-```bash
-cd examples/sort-benchmark
-ratchet init       # generate program.md for your agent
-ratchet results    # view the experiment scoreboard
-```
-
-### autoresearch
-
-Recreates the original [autoresearch](https://github.com/karpathy/autoresearch) experiment as a ratchet config. See [`examples/autoresearch.yaml`](examples/autoresearch.yaml).
-
-### api-optimizer
-
-Maximize API throughput (requests/sec) with p99 latency and error rate constraints. See [`examples/api-optimizer.yaml`](examples/api-optimizer.yaml).
+- **[sort-benchmark](examples/sort-benchmark/)** -- bubble sort to numpy in 7 experiments (85 -> 49,704 arrays/sec, 585x). A good e2e test.
+- **[autoresearch](examples/autoresearch.yaml)** -- Karpathy's GPT pretraining optimization as a ratchet config.
+- **[api-optimizer](examples/api-optimizer.yaml)** -- maximize API throughput with p99 latency and error rate constraints.
 
 ## License
 

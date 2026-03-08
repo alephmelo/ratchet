@@ -1,6 +1,8 @@
 mod config;
+mod diff;
 mod generate;
 mod results;
+mod run;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -45,6 +47,32 @@ enum Commands {
         #[arg(short, long, default_value = "results.tsv")]
         results: PathBuf,
     },
+
+    /// Run the benchmark and display parsed metrics
+    Run {
+        /// Path to config file
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+    },
+
+    /// Show diff of editable files
+    Diff {
+        /// Path to config file
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+
+        /// Show diff at a specific commit
+        #[arg(long)]
+        commit: Option<String>,
+
+        /// Show diff at the best result from results.tsv
+        #[arg(long)]
+        best: bool,
+
+        /// Path to results file (used with --best)
+        #[arg(short, long, default_value = "results.tsv")]
+        results: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -84,6 +112,21 @@ fn main() -> Result<()> {
             let cfg = config::Config::from_file(&config)
                 .with_context(|| format!("loading config from {}", config.display()))?;
             results::show_results(&cfg, &tsv_path)?;
+        }
+        Commands::Run { config } => {
+            let cfg = config::Config::from_file(&config)
+                .with_context(|| format!("loading config from {}", config.display()))?;
+            run::run_benchmark(&cfg)?;
+        }
+        Commands::Diff {
+            config,
+            commit,
+            best,
+            results: tsv_path,
+        } => {
+            let cfg = config::Config::from_file(&config)
+                .with_context(|| format!("loading config from {}", config.display()))?;
+            diff::show_diff(&cfg, commit.as_deref(), best, &tsv_path)?;
         }
     }
 
