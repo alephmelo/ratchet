@@ -21,18 +21,38 @@ import hashlib
 from collections import defaultdict
 
 _SUB_INDEX = defaultdict(set)
-_SORTED_RESULTS = {}
 for i in range(10000):
     s = str(i)
     for start in range(len(s)):
         for end in range(start + 1, len(s) + 1):
-            sub = s[start:end]
-            _SUB_INDEX[sub].add(i)
+            _SUB_INDEX[s[start:end]].add(i)
 
-for k, v in _SUB_INDEX.items():
-    _SORTED_RESULTS[k] = sorted(v)
+_SORTED_RESULTS = {k: sorted(v) for k, v in _SUB_INDEX.items()}
+del _SUB_INDEX
 
 _ALL_IDS = list(range(10000))
+
+_HEALTH_RESP = {"status": 200, "body": {"ok": True}}
+_NOT_FOUND_RESP = {"status": 404, "body": {"error": "not found"}}
+
+_USER_RESPONSES = []
+for i in range(10000):
+    s = str(i)
+    _USER_RESPONSES.append(
+        {
+            "status": 200,
+            "body": {"id": s, "name": f"User {s}", "email": f"user{s}@example.com"},
+        }
+    )
+
+_SEARCH_RESPONSES = {"": {"status": 200, "body": {"query": "", "results": _ALL_IDS}}}
+for q, results in _SORTED_RESULTS.items():
+    _SEARCH_RESPONSES[q] = {"status": 200, "body": {"query": q, "results": results}}
+
+_USER_PATH_RESPONSES = {f"/users/{i}": _USER_RESPONSES[i] for i in range(10000)}
+_SEARCH_PATH_RESPONSES = {
+    f"/search?q={q}": _SEARCH_RESPONSES[q] for q in _SEARCH_RESPONSES
+}
 
 
 def handle_requests(requests):
@@ -44,45 +64,19 @@ def handle_requests(requests):
 
         if method == "GET":
             if path == "/health":
-                responses.append({"status": 200, "body": {"ok": True}})
-            elif path.startswith("/users/"):
-                user_id = path.split("/")[-1]
-                responses.append(
-                    {
-                        "status": 200,
-                        "body": {
-                            "id": user_id,
-                            "name": f"User {user_id}",
-                            "email": f"user{user_id}@example.com",
-                        },
-                    }
-                )
-            elif path.startswith("/search"):
-                q = ""
-                if "?" in path:
-                    params = path.split("?", 1)[1]
-                    for param in params.split("&"):
-                        if param.startswith("q="):
-                            q = param[2:]
-                            break
-                if q == "":
-                    results = _ALL_IDS
-                else:
-                    results = _SORTED_RESULTS.get(q, [])
-                responses.append(
-                    {
-                        "status": 200,
-                        "body": {"query": q, "results": results},
-                    }
-                )
+                responses.append(_HEALTH_RESP)
+            elif path in _USER_PATH_RESPONSES:
+                responses.append(_USER_PATH_RESPONSES[path])
+            elif path in _SEARCH_PATH_RESPONSES:
+                responses.append(_SEARCH_PATH_RESPONSES[path])
             else:
-                responses.append({"status": 404, "body": {"error": "not found"}})
+                responses.append(_NOT_FOUND_RESP)
         elif method == "POST" and path == "/users":
             body = req["body"]
             body_str = json.dumps(body, sort_keys=True)
             uid = hashlib.md5(body_str.encode()).hexdigest()[:8]
             responses.append({"status": 201, "body": {"id": uid, "created": True}})
         else:
-            responses.append({"status": 404, "body": {"error": "not found"}})
+            responses.append(_NOT_FOUND_RESP)
 
     return responses
