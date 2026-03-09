@@ -40,7 +40,7 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
         .arg("-c")
         .arg(&config.run)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::inherit())
         .spawn()
         .context("failed to start benchmark command")?;
 

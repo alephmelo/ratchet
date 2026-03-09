@@ -4,6 +4,8 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config::{format_metric, Config, Direction};
@@ -145,13 +147,13 @@ fn build_iteration_prompt(
         .context("parsing iterate.md.j2 template")?;
 
     // Read editable file contents
-    let mut editable_files: Vec<HashMap<&str, String>> = Vec::new();
+    let mut editable_files: Vec<HashMap<String, String>> = Vec::new();
     for path in &config.editable {
         let content =
             fs::read_to_string(path).unwrap_or_else(|_| format!("(file not found: {})", path));
         let mut m = HashMap::new();
-        m.insert("path", path.clone());
-        m.insert("content", content);
+        m.insert("path".to_string(), path.clone());
+        m.insert("content".to_string(), content);
         editable_files.push(m);
     }
 
@@ -165,7 +167,7 @@ fn build_iteration_prompt(
         0.0
     };
 
-    let mut history_rows: Vec<HashMap<&str, String>> = Vec::new();
+    let mut history_rows: Vec<HashMap<String, String>> = Vec::new();
     for row in history {
         let first_val = row.first_metric();
         let vs_baseline = if baseline_metric != 0.0 && row.commit != "baseline" {
@@ -181,21 +183,17 @@ fn build_iteration_prompt(
         };
 
         let mut m = HashMap::new();
-        m.insert("num", row.num.to_string());
-        m.insert("metric", format_metric(first_val));
+        m.insert("num".to_string(), row.num.to_string());
+        m.insert("metric".to_string(), format_metric(first_val));
         // For multi-metric, include all values
         for (i, val) in row.metric_values.iter().enumerate() {
             if i < primary.len() {
-                m.insert(
-                    // Leak is fine here — these are short-lived template strings
-                    Box::leak(format!("metric_{}", primary[i].name).into_boxed_str()),
-                    format_metric(*val),
-                );
+                m.insert(format!("metric_{}", primary[i].name), format_metric(*val));
             }
         }
-        m.insert("vs_baseline", vs_baseline);
-        m.insert("status", row.status.clone());
-        m.insert("description", row.description.clone());
+        m.insert("vs_baseline".to_string(), vs_baseline);
+        m.insert("status".to_string(), row.status.clone());
+        m.insert("description".to_string(), row.description.clone());
         history_rows.push(m);
     }
 
@@ -294,7 +292,7 @@ fn run_benchmark(config: &Config) -> Result<(Vec<MetricResult>, Duration, bool)>
         .arg("-c")
         .arg(&config.run)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::inherit())
         .spawn()
         .context("failed to start benchmark command")?;
 
@@ -347,6 +345,24 @@ fn run_benchmark(config: &Config) -> Result<(Vec<MetricResult>, Duration, bool)>
         return Ok((metrics, elapsed, false));
     }
 
+    // Warn about any expected metrics that were not found in the output
+    for pm in config.primary_metrics() {
+        if !metrics.iter().any(|m| m.name == pm.name) {
+            eprintln!(
+                "  WARNING: metric '{}' not found in benchmark output (grep: '{}')",
+                pm.name, pm.grep
+            );
+        }
+    }
+    for constraint in &config.constraints {
+        if !metrics.iter().any(|m| m.name == constraint.name) {
+            eprintln!(
+                "  WARNING: constraint '{}' not found in benchmark output (grep: '{}')",
+                constraint.name, constraint.grep
+            );
+        }
+    }
+
     Ok((metrics, elapsed, true))
 }
 
@@ -382,6 +398,10 @@ fn git_short_hash() -> Result<String> {
         .args(["rev-parse", "--short", "HEAD"])
         .output()
         .context("git rev-parse")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git rev-parse failed: {}", stderr.trim());
+    }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -391,15 +411,23 @@ fn git_commit(config: &Config, message: &str) -> Result<()> {
     let editable_refs: Vec<&str> = config.editable.iter().map(|s| s.as_str()).collect();
     args.extend(&editable_refs);
 
-    Command::new("git")
+    let add_output = Command::new("git")
         .args(&args)
         .output()
         .context("git add")?;
+    if !add_output.status.success() {
+        let stderr = String::from_utf8_lossy(&add_output.stderr);
+        bail!("git add failed: {}", stderr.trim());
+    }
 
-    Command::new("git")
+    let commit_output = Command::new("git")
         .args(["commit", "-m", message])
         .output()
         .context("git commit")?;
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        bail!("git commit failed: {}", stderr.trim());
+    }
 
     Ok(())
 }
@@ -425,10 +453,14 @@ fn git_revert_editable(config: &Config, target: Option<&str>) -> Result<()> {
     let editable_refs: Vec<&str> = config.editable.iter().map(|s| s.as_str()).collect();
     args.extend(editable_refs);
 
-    Command::new("git")
+    let output = Command::new("git")
         .args(&args)
         .output()
         .context("git checkout")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git checkout {} failed: {}", tgt, stderr.trim());
+    }
 
     Ok(())
 }
@@ -488,7 +520,7 @@ fn append_result(
 }
 
 /// Spawn the agent to edit code. Returns the agent's description of what it did.
-fn spawn_agent(agent_cmd: &str, prompt_path: &Path) -> Result<String> {
+fn spawn_agent(agent_cmd: &str, prompt_path: &Path, agent_timeout: u64) -> Result<String> {
     // Replace {prompt} placeholder with actual path
     let cmd = agent_cmd.replace("{prompt}", &prompt_path.display().to_string());
 
@@ -502,7 +534,26 @@ fn spawn_agent(agent_cmd: &str, prompt_path: &Path) -> Result<String> {
         .spawn()
         .context("failed to spawn agent")?;
 
-    let status = child.wait().context("waiting for agent to finish")?;
+    let timeout = Duration::from_secs(agent_timeout);
+    let start = Instant::now();
+
+    let status = loop {
+        match child.try_wait().context("checking agent status")? {
+            Some(status) => break status,
+            None => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait(); // reap the process
+                    bail!(
+                        "agent timed out after {}s (agent_timeout: {}s)",
+                        start.elapsed().as_secs(),
+                        agent_timeout
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+    };
 
     if !status.success() {
         bail!("agent exited with code {}", status.code().unwrap_or(-1));
@@ -748,6 +799,7 @@ pub fn run_loop(
         );
     }
     println!("  agent: {}", agent_cmd);
+    println!("  agent timeout: {}s", config.agent_timeout);
     if let Some(max) = max_iterations {
         println!("  max iterations: {}", max);
     }
@@ -792,6 +844,17 @@ pub fn run_loop(
     // Prompt file path (reused each iteration)
     let prompt_path = PathBuf::from(".ratchet-prompt.md");
 
+    // Set up graceful shutdown on Ctrl-C
+    let shutdown = Arc::new(AtomicBool::new(false));
+    {
+        let shutdown = shutdown.clone();
+        ctrlc::set_handler(move || {
+            eprintln!("\n  caught interrupt, finishing current operation and shutting down...");
+            shutdown.store(true, Ordering::SeqCst);
+        })
+        .context("failed to set Ctrl-C handler")?;
+    }
+
     let mut iteration = 0;
     let mut since_improvement = 0_usize;
 
@@ -823,6 +886,17 @@ pub fn run_loop(
 
     loop {
         iteration += 1;
+
+        // Check for shutdown signal
+        if shutdown.load(Ordering::SeqCst) {
+            println!();
+            println!("  interrupted, shutting down gracefully");
+            // Revert any uncommitted changes to best known state
+            if git_has_changes(config).unwrap_or(false) {
+                let _ = git_revert_editable(config, best_commit_hash.as_deref());
+            }
+            break;
+        }
 
         if let Some(max) = max_iterations {
             if iteration > max {
@@ -856,10 +930,11 @@ pub fn run_loop(
         println!("  [{:>3}] spawning agent...", iteration);
         let iter_start = Instant::now();
 
-        let description = match spawn_agent(agent_cmd, &prompt_path) {
+        let description = match spawn_agent(agent_cmd, &prompt_path, config.agent_timeout) {
             Ok(desc) => desc,
             Err(e) => {
                 eprintln!("  [{:>3}] agent error: {}", iteration, e);
+                since_improvement += 1;
                 continue;
             }
         };
@@ -868,6 +943,7 @@ pub fn run_loop(
         let has_changes = git_has_changes(config)?;
         if !has_changes {
             println!("  [{:>3}] agent made no changes, skipping", iteration);
+            since_improvement += 1;
             continue;
         }
 

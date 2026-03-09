@@ -34,6 +34,9 @@ pub struct Config {
     /// Stop after N consecutive iterations without improvement.
     #[serde(default)]
     pub patience: Option<usize>,
+    /// Maximum seconds to wait for the agent to finish (default: 1800 = 30 min).
+    #[serde(default = "default_agent_timeout")]
+    pub agent_timeout: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -66,6 +69,10 @@ pub struct Constraint {
 
 fn default_timeout() -> u64 {
     600
+}
+
+fn default_agent_timeout() -> u64 {
+    1800
 }
 
 impl Config {

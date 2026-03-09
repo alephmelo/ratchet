@@ -147,6 +147,7 @@ fn main() -> Result<()> {
             println!("  timeout:     {}s", cfg.timeout);
             if let Some(agent) = &cfg.agent {
                 println!("  agent:       {}", agent);
+                println!("  agent_tout:  {}s", cfg.agent_timeout);
             }
             if let Some(max) = cfg.max_iterations {
                 println!("  max_iter:    {}", max);
