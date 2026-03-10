@@ -407,7 +407,8 @@ fn git_short_hash() -> Result<String> {
 }
 
 /// Git: commit all changes to editable files.
-fn git_commit(config: &Config, message: &str) -> Result<()> {
+/// Returns Ok(true) if a commit was created, Ok(false) if there was nothing to commit.
+fn git_commit(config: &Config, message: &str) -> Result<bool> {
     let mut args = vec!["add"];
     let editable_refs: Vec<&str> = config.editable.iter().map(|s| s.as_str()).collect();
     args.extend(&editable_refs);
@@ -421,6 +422,16 @@ fn git_commit(config: &Config, message: &str) -> Result<()> {
         bail!("git add failed: {}", stderr.trim());
     }
 
+    // Check if anything was actually staged before committing
+    let staged = Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .output()
+        .context("git diff --cached")?;
+    if staged.status.success() {
+        // Exit code 0 means no staged changes — nothing to commit
+        return Ok(false);
+    }
+
     let commit_output = Command::new("git")
         .args(["commit", "-m", message])
         .output()
@@ -430,7 +441,7 @@ fn git_commit(config: &Config, message: &str) -> Result<()> {
         bail!("git commit failed: {}", stderr.trim());
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Git: check if editable files have changes.
@@ -461,6 +472,50 @@ fn git_revert_editable(config: &Config, target: Option<&str>) -> Result<()> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("git checkout {} failed: {}", tgt, stderr.trim());
+    }
+
+    Ok(())
+}
+
+/// Git: discard any uncommitted changes to non-editable files.
+/// This cleans up modifications the agent made to readonly or other non-editable files.
+fn git_restore_non_editable(config: &Config) -> Result<()> {
+    // Get all modified files (unstaged)
+    let output = Command::new("git")
+        .args(["diff", "--name-only"])
+        .output()
+        .context("git diff --name-only")?;
+    let output_str = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Collect editable paths as a set for fast lookup
+    let editable_set: std::collections::HashSet<&str> =
+        config.editable.iter().map(|s| s.as_str()).collect();
+
+    // Find files that are modified but NOT editable
+    let non_editable: Vec<&str> = output_str
+        .trim()
+        .split('\n')
+        .filter(|s| !s.is_empty() && !editable_set.contains(*s))
+        .collect();
+
+    if non_editable.is_empty() {
+        return Ok(());
+    }
+
+    let mut args = vec!["checkout", "HEAD", "--"];
+    args.extend(non_editable.iter());
+
+    let restore = Command::new("git")
+        .args(&args)
+        .output()
+        .context("git checkout HEAD -- <non-editable>")?;
+    if !restore.status.success() {
+        // Non-fatal: just warn, don't crash the loop
+        let stderr = String::from_utf8_lossy(&restore.stderr);
+        eprintln!(
+            "  warning: failed to restore non-editable files: {}",
+            stderr.trim()
+        );
     }
 
     Ok(())
@@ -1041,10 +1096,14 @@ pub fn run_loop(
             Ok(desc) => desc,
             Err(e) => {
                 eprintln!("  [{:>3}] agent error: {}", iteration, e);
+                let _ = git_restore_non_editable(config);
                 since_improvement += 1;
                 continue;
             }
         };
+
+        // 3.5. Restore any changes to non-editable files (e.g. readonly files the agent touched)
+        let _ = git_restore_non_editable(config);
 
         // 4. Check if agent made changes
         let has_changes = git_has_changes(config)?;
@@ -1056,7 +1115,15 @@ pub fn run_loop(
 
         // 5. Commit the changes
         let commit_msg = format!("ratchet #{}: {}", iteration, &description);
-        git_commit(config, &commit_msg)?;
+        let committed = git_commit(config, &commit_msg)?;
+        if !committed {
+            println!(
+                "  [{:>3}] no editable changes to commit, skipping",
+                iteration
+            );
+            since_improvement += 1;
+            continue;
+        }
         let commit_hash = git_short_hash()?;
 
         // 6. Run benchmark
