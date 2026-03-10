@@ -182,9 +182,11 @@ cargo build --release
 
 **`ratchet diff`** -- show git diff of editable files
 
+All modes diff against the merge-base with main/master, showing the full accumulated changes:
+
 - `ratchet diff` -- full experiment diff (merge-base to HEAD)
-- `ratchet diff --commit <hash>` -- diff a specific commit against its parent
-- `ratchet diff --best` -- diff the best-scoring commit from `results.tsv`
+- `ratchet diff --best` -- all changes up to the best-scoring commit from `results.tsv`
+- `ratchet diff --commit <hash>` -- all changes up to a specific commit
 
 ```
   diff at best result [f37d0c1]:

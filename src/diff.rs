@@ -94,12 +94,12 @@ fn run_git_diff(config: &Config, from: &str, to: &str) -> Result<()> {
     Ok(())
 }
 
-/// Get the merge-base or first commit on the branch.
-fn find_base_commit() -> Result<String> {
+/// Get the merge-base with main/master for a given commit (defaults to HEAD).
+fn find_base_commit(tip: &str) -> Result<String> {
     // Try to find merge-base with main/master
     for base_branch in &["main", "master"] {
         let output = Command::new("git")
-            .args(["merge-base", base_branch, "HEAD"])
+            .args(["merge-base", base_branch, tip])
             .output();
 
         if let Ok(output) = output {
@@ -114,7 +114,7 @@ fn find_base_commit() -> Result<String> {
 
     // Fallback: use the root commit
     let output = Command::new("git")
-        .args(["rev-list", "--max-parents=0", "HEAD"])
+        .args(["rev-list", "--max-parents=0", tip])
         .output()
         .context("failed to find root commit")?;
 
@@ -135,21 +135,23 @@ fn find_base_commit() -> Result<String> {
 /// Show diff of editable files.
 pub fn show_diff(config: &Config, commit: Option<&str>, best: bool, tsv_path: &Path) -> Result<()> {
     if best {
-        // Find best commit from results.tsv and diff it against its parent
+        // Find best commit from results.tsv and diff it against merge-base
         let best_commit = find_best_commit(config, tsv_path)?;
-        println!("  diff at best result [{}]:", best_commit);
+        let base = find_base_commit(&best_commit)?;
+        let short_base = &base[..7.min(base.len())];
+        println!("  diff {}..{} (best result):", short_base, best_commit);
         println!();
-        let parent = format!("{}~1", best_commit);
-        run_git_diff(config, &parent, &best_commit)?;
+        run_git_diff(config, &base, &best_commit)?;
     } else if let Some(commit) = commit {
-        // Diff specific commit against its parent
-        println!("  diff at [{}]:", commit);
+        // Diff specific commit against merge-base
+        let base = find_base_commit(commit)?;
+        let short_base = &base[..7.min(base.len())];
+        println!("  diff {}..{} (at commit):", short_base, commit);
         println!();
-        let parent = format!("{}~1", commit);
-        run_git_diff(config, &parent, commit)?;
+        run_git_diff(config, &base, commit)?;
     } else {
         // Diff HEAD vs base branch (full experiment diff)
-        let base = find_base_commit()?;
+        let base = find_base_commit("HEAD")?;
         let short_base = &base[..7.min(base.len())];
         println!("  diff {}..HEAD (full experiment):", short_base);
         println!();
