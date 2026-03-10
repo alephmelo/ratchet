@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use chrono::Local;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -465,6 +466,108 @@ fn git_revert_editable(config: &Config, target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Git: get the current branch name (returns None if detached HEAD).
+fn git_current_branch() -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["symbolic-ref", "--short", "HEAD"])
+        .output()
+        .context("git symbolic-ref")?;
+    if !output.status.success() {
+        // detached HEAD — not on any branch
+        return Ok(None);
+    }
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(branch))
+    }
+}
+
+/// Git: check whether a branch name already exists (local).
+fn git_branch_exists(name: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", &format!("refs/heads/{}", name)])
+        .output()
+        .context("git rev-parse --verify")?;
+    Ok(output.status.success())
+}
+
+/// Git: create and switch to a new branch.
+fn git_create_branch(name: &str) -> Result<()> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", name])
+        .output()
+        .context("git checkout -b")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git checkout -b {} failed: {}", name, stderr.trim());
+    }
+    Ok(())
+}
+
+/// Generate a date-based experiment tag like "mar10", "mar10-2", "mar10-3", etc.
+/// Finds the first unused tag by checking existing branch names.
+fn generate_experiment_tag() -> Result<String> {
+    let now = Local::now();
+    let base_tag = now.format("%b%-d").to_string().to_lowercase(); // e.g. "mar10"
+
+    let candidate = format!("ratchet/{}", base_tag);
+    if !git_branch_exists(&candidate)? {
+        return Ok(base_tag);
+    }
+
+    // Try suffixes -2, -3, ... until we find one that doesn't exist
+    for n in 2.. {
+        let tag = format!("{}-{}", base_tag, n);
+        let candidate = format!("ratchet/{}", tag);
+        if !git_branch_exists(&candidate)? {
+            return Ok(tag);
+        }
+    }
+
+    unreachable!()
+}
+
+/// Ensure we are on an experiment branch before starting the loop.
+///
+/// - If already on a `ratchet/*` branch, proceed.
+/// - If on `main` or `master`, auto-create a new `ratchet/{tag}` branch.
+/// - Otherwise (any other non-ratchet branch), refuse to run.
+fn ensure_experiment_branch() -> Result<String> {
+    let branch = git_current_branch()?;
+
+    match branch {
+        Some(ref name) if name.starts_with("ratchet/") => {
+            // Already on an experiment branch — good to go
+            Ok(name.clone())
+        }
+        Some(ref name) if name == "main" || name == "master" => {
+            // On main/master — auto-create an experiment branch
+            let tag = generate_experiment_tag()?;
+            let branch_name = format!("ratchet/{}", tag);
+            println!("  creating experiment branch: {}", branch_name);
+            git_create_branch(&branch_name)?;
+            Ok(branch_name)
+        }
+        Some(name) => {
+            bail!(
+                "refusing to run on branch '{}'. \
+                 Switch to main/master (to auto-create an experiment branch) \
+                 or to an existing ratchet/* branch.",
+                name
+            );
+        }
+        None => {
+            bail!(
+                "HEAD is detached. \
+                 Switch to main/master (to auto-create an experiment branch) \
+                 or to an existing ratchet/* branch."
+            );
+        }
+    }
+}
+
 /// Append a row to results.tsv.
 fn append_result(
     config: &Config,
@@ -765,6 +868,9 @@ pub fn run_loop(
     max_iterations: Option<usize>,
     patience: Option<usize>,
 ) -> Result<()> {
+    // Ensure we're on an experiment branch (auto-creates one from main/master)
+    let branch = ensure_experiment_branch()?;
+
     println!();
     let primary = config.primary_metrics();
     if config.is_multi_metric() {
@@ -798,6 +904,7 @@ pub fn run_loop(
             }
         );
     }
+    println!("  branch: {}", branch);
     println!("  agent: {}", agent_cmd);
     println!("  agent timeout: {}s", config.agent_timeout);
     if let Some(max) = max_iterations {
