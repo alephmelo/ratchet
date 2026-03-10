@@ -1,6 +1,7 @@
 mod config;
 mod diff;
 mod generate;
+mod instruct;
 mod loop_cmd;
 mod plot;
 mod results;
@@ -109,6 +110,13 @@ enum Commands {
         #[arg(short, long, default_value = "results.tsv")]
         results: PathBuf,
     },
+
+    /// Print setup instructions for an AI agent to help configure ratchet
+    Instruct {
+        /// Path to config file (used for context if it exists)
+        #[arg(short, long, default_value = "ratchet.yaml")]
+        config: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -216,6 +224,9 @@ fn main() -> Result<()> {
             let cfg = config::Config::from_file(&config)
                 .with_context(|| format!("loading config from {}", config.display()))?;
             plot::show_plot(&cfg, &tsv_path)?;
+        }
+        Commands::Instruct { config } => {
+            instruct::print_instructions(&config);
         }
     }
 

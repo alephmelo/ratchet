@@ -56,6 +56,16 @@ ratchet loop --agent "opencode run -m github-copilot/claude-sonnet-4.6 < {prompt
 
 That's it. The agent takes over from there.
 
+### Don't know where to start?
+
+Use `ratchet instruct` to generate a setup prompt you can hand to any AI agent. It will guide the agent through exploring your repo, identifying useful metrics, writing a benchmark script, and producing a valid `ratchet.yaml`:
+
+```bash
+ratchet instruct | pbcopy   # copy to clipboard, paste into your agent
+```
+
+If a `ratchet.yaml` already exists, the instructions include its current config as context so the agent can review and improve it.
+
 ### Ideas for what to optimize
 
 | Project | Metric | Direction |
@@ -187,6 +197,8 @@ cargo build --release
 
 Ratchet controls the iteration: spawn agent to edit code, run benchmark, evaluate, keep or revert, repeat. The agent only sees a focused per-iteration prompt with the current code, history, and what to try.
 
+When run from `main` or `master`, ratchet automatically creates a `ratchet/{tag}` experiment branch (e.g. `ratchet/mar10`). Multiple runs on the same day get suffixed: `ratchet/mar10-2`, `ratchet/mar10-3`, etc. If already on a `ratchet/*` branch, it continues there.
+
 ```bash
 # Specify agent on the command line
 ratchet loop --agent "opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}"
@@ -230,6 +242,16 @@ The loop includes two automatic behaviors:
   █ kept (7/9)  ░ discarded/crashed  * best: 71396.70 (840x)
 ```
 
+**`ratchet instruct`** -- print setup instructions for an AI agent
+
+Generates a dynamic prompt that teaches an AI agent about ratchet's config schema, features, and CLI commands, then asks it to explore the repository and produce a valid `ratchet.yaml`. The output reflects the current ratchet feature set (not a static template).
+
+```bash
+ratchet instruct                        # print to stdout
+ratchet instruct | pbcopy               # copy to clipboard
+ratchet instruct -c existing.yaml       # includes existing config as context
+```
+
 All commands accept `--config <path>` (default: `ratchet.yaml`).
 
 ## Config reference
@@ -247,6 +269,7 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `baseline` | no | Known baseline values (avoids re-running) |
 | `context` | no | Free-text domain hints for the agent |
 | `agent` | no | Agent command for `ratchet loop`. Use `{prompt}` as placeholder. |
+| `agent_timeout` | no | Max seconds to wait for the agent (default: 1800). |
 | `max_iterations` | no | Maximum iterations for `ratchet loop` (overridden by `-n`). |
 | `patience` | no | Stop after N iterations without improvement (overridden by `-p`). |
 
