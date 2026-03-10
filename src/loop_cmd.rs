@@ -37,11 +37,10 @@ struct MetricResult {
 /// Extract a value from a line matching a grep pattern like "^name:".
 fn try_parse_metric(line: &str, grep: &str) -> Option<f64> {
     let prefix = grep.strip_prefix('^').unwrap_or(grep);
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with(prefix) {
-        return None;
-    }
-    let rest = trimmed[prefix.len()..].trim();
+    // Find the pattern anywhere in the line (not just at start) so that
+    // log-prefixed lines like "2026-03-10 INFO ...  ndcg@10: 0.019" still match.
+    let pos = line.find(prefix)?;
+    let rest = line[pos + prefix.len()..].trim();
     rest.parse::<f64>()
         .ok()
         .or_else(|| rest.split_whitespace().next()?.parse::<f64>().ok())

@@ -13,16 +13,13 @@ struct MetricResult {
 
 /// Extract a value from a line matching "name: value" given a grep pattern like "^name:".
 fn try_parse_metric(line: &str, _name: &str, grep: &str) -> Option<f64> {
-    // The grep patterns are like "^throughput:" — we just check if the line
-    // starts with the prefix (strip the ^ anchor if present).
-    // We also trim leading whitespace so indented output lines still match.
+    // Strip the ^ anchor if present, then search for the pattern anywhere
+    // in the line so log-prefixed output (e.g. Python logging with timestamps)
+    // still matches.
     let prefix = grep.strip_prefix('^').unwrap_or(grep);
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with(prefix) {
-        return None;
-    }
-    // Extract the value after the prefix
-    let rest = trimmed[prefix.len()..].trim();
+    let pos = line.find(prefix)?;
+    // Extract the value after the matched pattern
+    let rest = line[pos + prefix.len()..].trim();
     rest.parse::<f64>().ok().or_else(|| {
         // Try parsing just the first token (in case there's extra text)
         rest.split_whitespace().next()?.parse::<f64>().ok()
