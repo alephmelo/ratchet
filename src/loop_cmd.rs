@@ -37,10 +37,11 @@ struct MetricResult {
 /// Extract a value from a line matching a grep pattern like "^name:".
 fn try_parse_metric(line: &str, grep: &str) -> Option<f64> {
     let prefix = grep.strip_prefix('^').unwrap_or(grep);
-    if !line.starts_with(prefix) {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with(prefix) {
         return None;
     }
-    let rest = line[prefix.len()..].trim();
+    let rest = trimmed[prefix.len()..].trim();
     rest.parse::<f64>()
         .ok()
         .or_else(|| rest.split_whitespace().next()?.parse::<f64>().ok())
@@ -289,11 +290,13 @@ fn run_benchmark(config: &Config) -> Result<(Vec<MetricResult>, Duration, bool)>
     let start = Instant::now();
     let timeout = Duration::from_secs(config.timeout);
 
+    // Merge stderr into stdout so we capture metrics from both streams
+    // (many programs, e.g. Python logging, write to stderr)
+    let merged_cmd = format!("{} 2>&1", &config.run);
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(&config.run)
+        .arg(&merged_cmd)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
         .spawn()
         .context("failed to start benchmark command")?;
 
@@ -305,6 +308,9 @@ fn run_benchmark(config: &Config) -> Result<(Vec<MetricResult>, Duration, bool)>
 
     for line in reader.lines() {
         let line = line.context("reading benchmark output")?;
+
+        // Display benchmark output live
+        eprintln!("  | {}", line);
 
         // Parse all primary metrics
         for pm in config.primary_metrics() {

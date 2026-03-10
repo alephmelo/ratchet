@@ -15,12 +15,14 @@ struct MetricResult {
 fn try_parse_metric(line: &str, _name: &str, grep: &str) -> Option<f64> {
     // The grep patterns are like "^throughput:" — we just check if the line
     // starts with the prefix (strip the ^ anchor if present).
+    // We also trim leading whitespace so indented output lines still match.
     let prefix = grep.strip_prefix('^').unwrap_or(grep);
-    if !line.starts_with(prefix) {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with(prefix) {
         return None;
     }
     // Extract the value after the prefix
-    let rest = line[prefix.len()..].trim();
+    let rest = trimmed[prefix.len()..].trim();
     rest.parse::<f64>().ok().or_else(|| {
         // Try parsing just the first token (in case there's extra text)
         rest.split_whitespace().next()?.parse::<f64>().ok()
@@ -35,12 +37,13 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
     let start = Instant::now();
     let timeout = Duration::from_secs(config.timeout);
 
-    // Run the command via shell
+    // Run the command via shell, merging stderr into stdout so we capture
+    // metrics from both streams (many programs, e.g. Python logging, write to stderr)
+    let merged_cmd = format!("{} 2>&1", &config.run);
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(&config.run)
+        .arg(&merged_cmd)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
         .spawn()
         .context("failed to start benchmark command")?;
 
@@ -55,6 +58,9 @@ pub fn run_benchmark(config: &Config) -> Result<()> {
 
     for line in reader.lines() {
         let line = line.context("reading benchmark output")?;
+
+        // Display benchmark output live
+        println!("  | {}", line);
 
         // Check all primary metrics
         for pm in config.primary_metrics() {
