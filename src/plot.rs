@@ -3,12 +3,34 @@ use std::path::Path;
 
 use crate::config::{format_metric, Config, Direction};
 
+/// Abbreviate a strategy name to a short tag for display.
+fn strategy_abbrev(name: &str) -> &str {
+    match name {
+        "algorithm" => "algo",
+        "data-structure" => "ds",
+        "micro-optimization" => "micro",
+        "parallelism" => "para",
+        "memory-layout" => "mem",
+        "rewrite" => "rewr",
+        other => {
+            // For unknown strategies, take the first 4 chars
+            if other.len() > 4 {
+                &other[..4]
+            } else {
+                other
+            }
+        }
+    }
+}
+
 /// A data point for the chart.
 struct DataPoint {
     label: String,
     /// One value per primary metric (in order).
     values: Vec<f64>,
     status: String,
+    /// Strategy arm name (if bandit is enabled), e.g. "algorithm".
+    strategy: Option<String>,
 }
 
 /// Parse results.tsv into data points with all metric values.
@@ -43,10 +65,17 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             let v: f64 = cols[1 + i].trim().parse().unwrap_or(0.0);
             values.push(v);
         }
-        let status_idx = if has_strategy_col {
-            1 + num_metrics + num_constraints + 1 // skip strategy column
+        let (strategy, status_idx) = if has_strategy_col {
+            let strat_idx = 1 + num_metrics + num_constraints;
+            let raw = cols[strat_idx].trim();
+            let strategy = if raw == "-" || raw.is_empty() {
+                None
+            } else {
+                Some(raw.to_string())
+            };
+            (strategy, strat_idx + 1)
         } else {
-            1 + num_metrics + num_constraints
+            (None, 1 + num_metrics + num_constraints)
         };
 
         points.push(DataPoint {
@@ -59,6 +88,7 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             },
             values,
             status: cols[status_idx].trim().to_string(),
+            strategy,
         });
     }
 
@@ -150,14 +180,21 @@ fn render_chart(
             _ => "?",
         };
 
+        // Strategy tag (e.g., " [algo]")
+        let strat_tag = match &point.strategy {
+            Some(s) => format!(" [{}]", strategy_abbrev(s)),
+            None => String::new(),
+        };
+
         println!(
-            "  {} {:>label_w$} {} {}{}{}",
+            "  {} {:>label_w$} {} {}{}{}{}",
             status_indicator,
             point.label,
             bar,
             "",
             format_metric(val),
             marker,
+            strat_tag,
             label_w = label_width,
         );
     }
@@ -228,6 +265,47 @@ fn render_chart(
     }
 }
 
+/// Render a summary table of bandit arm performance.
+fn render_arm_summary(points: &[DataPoint]) {
+    use std::collections::BTreeMap;
+
+    // Collect per-arm stats: (pulls, wins)
+    let mut arms: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+
+    for p in points {
+        if let Some(ref strat) = p.strategy {
+            let entry = arms.entry(strat.as_str()).or_insert((0, 0));
+            entry.0 += 1;
+            if p.status == "keep" {
+                entry.1 += 1;
+            }
+        }
+    }
+
+    if arms.is_empty() {
+        return;
+    }
+
+    println!("  Bandit Arms");
+    println!();
+    println!(
+        "  {:<20} {:>6} {:>6} {:>9}",
+        "strategy", "pulls", "wins", "win rate"
+    );
+    println!("  {}", "─".repeat(45));
+
+    for (name, (pulls, wins)) in &arms {
+        let rate = if *pulls > 0 {
+            format!("{:.0}%", (*wins as f64 / *pulls as f64) * 100.0)
+        } else {
+            "—".to_string()
+        };
+        println!("  {:<20} {:>6} {:>6} {:>9}", name, pulls, wins, rate);
+    }
+
+    println!();
+}
+
 /// Render a horizontal bar chart in the terminal.
 pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
     let points = parse_data(config, tsv_path)?;
@@ -253,6 +331,12 @@ pub fn show_plot(config: &Config, tsv_path: &Path) -> Result<()> {
         // Single metric: render one chart
         let m = &primary[0];
         render_chart(&points, 0, &m.name, m.direction, &config.name);
+    }
+
+    // If any data points have strategy info, show arm summary
+    let has_strategies = points.iter().any(|p| p.strategy.is_some());
+    if has_strategies {
+        render_arm_summary(&points);
     }
 
     println!();
