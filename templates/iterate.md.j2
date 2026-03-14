@@ -76,6 +76,14 @@ Experiment {{ last_attempt.num }}: "{{ last_attempt.description }}" — {{ last_
 - {{ hint }}
 {% endfor %}
 {%- endif %}
+{% if strategy_directive %}
+
+## Strategy directive
+
+**This iteration's focus: {{ strategy_arm }}**
+
+{{ strategy_directive }}
+{%- endif %}
 
 ## Rules
 

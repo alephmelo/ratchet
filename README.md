@@ -225,6 +225,7 @@ The loop includes two automatic behaviors:
 
 - **Rollback-to-best**: When a result is discarded or crashes, ratchet reverts editable files to the best-scoring commit (not just the previous one). This means the agent always works from the best known state.
 - **Strategy hints**: After a few iterations, ratchet analyzes experiment history and injects hints into the agent's prompt — plateau detection ("recent improvements are marginal, try something different"), failure streak warnings, the biggest improvement so far ("more of this"), and recently failed approaches to avoid.
+- **Multi-armed bandit**: Optionally, ratchet can use a UCB1 multi-armed bandit to systematically select optimization strategies for the agent (see below).
 
 **`ratchet plot`** -- visualize metric progression
 
@@ -243,6 +244,42 @@ The loop includes two automatic behaviors:
 
   █ kept (7/9)  ░ discarded/crashed  * best: 71396.70 (840x)
 ```
+
+### Multi-armed bandit strategy selection
+
+By default, ratchet leaves the "what to try next" decision entirely to the AI agent. Enable the multi-armed bandit to add structured exploration-exploitation:
+
+```yaml
+bandit: true
+```
+
+When enabled, ratchet uses the [UCB1 algorithm](https://en.wikipedia.org/wiki/Multi-armed_bandit#Upper_confidence_bound) to select an optimization strategy for each iteration. Six built-in strategy arms compete:
+
+| Arm | What it tells the agent |
+|-----|------------------------|
+| `algorithm` | Try a fundamentally different algorithm or approach |
+| `data-structure` | Change how data is stored or accessed |
+| `micro-optimization` | Targeted low-level optimizations on the hot path |
+| `parallelism` | Add concurrency, SIMD, batching, or parallel processing |
+| `memory-layout` | Optimize cache utilization and memory access patterns |
+| `rewrite` | Rewrite a significant section from scratch |
+
+The bandit balances exploration (trying under-tested strategies) with exploitation (favoring strategies that have produced improvements). Each iteration:
+
+1. UCB1 selects the arm with the highest score: `mean_reward + c * sqrt(ln(N) / n_i)`
+2. The selected strategy is injected into the agent's prompt as a directive
+3. After the benchmark, the outcome (kept = reward, discarded/crashed = no reward) updates the arm's statistics
+
+Bandit state persists in `bandit.json` alongside `results.tsv`, so it survives restarts. The selected strategy for each experiment is also recorded in the `strategy` column of `results.tsv` and shown in `ratchet results`.
+
+You can tune the exploration-exploitation trade-off:
+
+```yaml
+bandit:
+  exploration: 1.0     # lower = more exploitation, higher = more exploration (default: ~1.41)
+```
+
+The bandit complements the existing strategy hints — hints provide reactive context ("you're plateauing", "avoid this failed approach"), while the bandit provides proactive strategic direction.
 
 **`ratchet instruct`** -- print setup instructions for an AI agent
 
@@ -274,6 +311,7 @@ All commands accept `--config <path>` (default: `ratchet.yaml`).
 | `agent_timeout` | no | Max seconds to wait for the agent (default: 1800). |
 | `max_iterations` | no | Maximum iterations for `ratchet loop` (overridden by `-n`). |
 | `patience` | no | Stop after N iterations without improvement (overridden by `-p`). |
+| `bandit` | no | Enable multi-armed bandit strategy selection (`true` or `{ exploration: 1.41 }`). |
 
 *Use either `metric` (single) or `metrics` (multiple), not both.
 

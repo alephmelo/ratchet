@@ -17,7 +17,11 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
         .with_context(|| format!("reading {}", tsv_path.display()))?;
 
     let mut lines = contents.lines();
-    let _header = lines.next().context("results.tsv is empty")?;
+    let header = lines.next().context("results.tsv is empty")?;
+
+    // Detect whether the TSV has a "strategy" column by checking the header.
+    let header_cols: Vec<&str> = header.split('\t').collect();
+    let has_strategy_col = header_cols.iter().any(|c| c.trim() == "strategy");
 
     let num_metrics = config.primary_metrics().len();
     let num_constraints = config.constraints.len();
@@ -28,7 +32,7 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        let min_cols = 1 + num_metrics + num_constraints + 2;
+        let min_cols = 1 + num_metrics + num_constraints + 2 + if has_strategy_col { 1 } else { 0 };
         if cols.len() < min_cols {
             continue;
         }
@@ -39,7 +43,11 @@ fn parse_data(config: &Config, tsv_path: &Path) -> Result<Vec<DataPoint>> {
             let v: f64 = cols[1 + i].trim().parse().unwrap_or(0.0);
             values.push(v);
         }
-        let status_idx = 1 + num_metrics + num_constraints;
+        let status_idx = if has_strategy_col {
+            1 + num_metrics + num_constraints + 1 // skip strategy column
+        } else {
+            1 + num_metrics + num_constraints
+        };
 
         points.push(DataPoint {
             label: if commit == "baseline" {

@@ -92,7 +92,11 @@ pub fn print_instructions(config_path: &Path) {
          agent: 'opencode run < {{prompt}}'  # Agent command ({{prompt}} = prompt file path)\n\
          agent_timeout: 1800               # Max seconds to wait for the agent (default: {})\n\
          max_iterations: 50                # Stop after N total iterations (optional)\n\
-         patience: 10                      # Stop after N iterations without improvement (optional)\n",
+         patience: 10                      # Stop after N iterations without improvement (optional)\n\
+         bandit: true                      # Enable multi-armed bandit strategy selection (optional)\n\
+         # Or with custom exploration constant:\n\
+         # bandit:\n\
+         #   exploration: 1.41             # UCB1 exploration constant (default: sqrt(2))\n",
         600, 1800,
     ));
     out.push_str("```\n\n");

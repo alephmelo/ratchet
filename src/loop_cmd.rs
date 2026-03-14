@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::bandit::BanditState;
 use crate::config::{format_metric, Config, Direction};
 
 /// A parsed row from results.tsv for building iteration prompts.
@@ -17,6 +18,9 @@ struct HistoryRow {
     commit: String,
     /// Primary metric values, in the same order as config.primary_metrics().
     metric_values: Vec<f64>,
+    /// The bandit strategy arm used for this experiment (empty if bandit was disabled).
+    #[allow(dead_code)]
+    strategy: String,
     status: String,
     description: String,
 }
@@ -81,6 +85,9 @@ fn is_single_metric_better(candidate: f64, reference: f64, direction: Direction)
 }
 
 /// Read results.tsv and return parsed history rows.
+///
+/// Handles both old format (without strategy column) and new format (with strategy column)
+/// by detecting whether the header contains a "strategy" column.
 fn read_history(
     tsv_path: &Path,
     num_metrics: usize,
@@ -93,13 +100,24 @@ fn read_history(
     let contents =
         fs::read_to_string(tsv_path).with_context(|| format!("reading {}", tsv_path.display()))?;
     let mut lines = contents.lines();
-    let _header = match lines.next() {
+    let header = match lines.next() {
         Some(h) => h,
         None => return Ok(Vec::new()),
     };
 
+    // Detect whether the TSV has a "strategy" column by checking the header.
+    let header_cols: Vec<&str> = header.split('\t').collect();
+    let has_strategy_col = header_cols.iter().any(|c| c.trim() == "strategy");
+
     let mut rows = Vec::new();
-    let min_cols = 1 + num_metrics + num_constraints + 2; // commit + metrics + constraints + status + description
+    let min_cols_old = 1 + num_metrics + num_constraints + 2; // commit + metrics + constraints + status + description
+    let min_cols_new = min_cols_old + 1; // + strategy
+    let min_cols = if has_strategy_col {
+        min_cols_new
+    } else {
+        min_cols_old
+    };
+
     for (i, line) in lines.enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -114,13 +132,22 @@ fn read_history(
             metric_values.push(cols[1 + j].trim().parse().unwrap_or(0.0));
         }
 
-        let status_idx = 1 + num_metrics + num_constraints;
-        let desc_idx = status_idx + 1;
+        let (strategy, status_idx, desc_idx) = if has_strategy_col {
+            let strat_idx = 1 + num_metrics + num_constraints;
+            let stat_idx = strat_idx + 1;
+            let d_idx = stat_idx + 1;
+            (cols[strat_idx].trim().to_string(), stat_idx, d_idx)
+        } else {
+            let stat_idx = 1 + num_metrics + num_constraints;
+            let d_idx = stat_idx + 1;
+            (String::new(), stat_idx, d_idx)
+        };
 
         rows.push(HistoryRow {
             num: i + 1,
             commit: cols[0].trim().to_string(),
             metric_values,
+            strategy,
             status: cols[status_idx].trim().to_string(),
             description: if desc_idx < cols.len() {
                 cols[desc_idx..].join("\t").trim().to_string()
@@ -139,6 +166,7 @@ fn build_iteration_prompt(
     iteration: usize,
     history: &[HistoryRow],
     strategy_hints: &[String],
+    bandit_arm: Option<(&str, &str)>, // (arm_name, arm_description)
 ) -> Result<String> {
     let template_src = include_str!("../templates/iterate.md.j2");
 
@@ -259,6 +287,11 @@ fn build_iteration_prompt(
         })
         .collect();
 
+    let (strategy_arm, strategy_directive): (String, String) = match bandit_arm {
+        Some((name, desc)) => (name.to_string(), desc.to_string()),
+        None => (String::new(), String::new()),
+    };
+
     let ctx = minijinja::context! {
         iteration => iteration,
         name => &config.name,
@@ -279,6 +312,8 @@ fn build_iteration_prompt(
         context => &config.context,
         last_attempt => last_attempt,
         strategy_hints => strategy_hints,
+        strategy_arm => strategy_arm,
+        strategy_directive => strategy_directive,
     };
 
     tmpl.render(ctx).context("rendering iteration prompt")
@@ -634,6 +669,7 @@ fn append_result(
     tsv_path: &Path,
     commit: &str,
     metrics: &[MetricResult],
+    strategy: Option<&str>,
     status: &str,
     description: &str,
 ) -> Result<()> {
@@ -674,6 +710,7 @@ fn append_result(
         row.push(format_metric(value));
     }
 
+    row.push(strategy.unwrap_or("-").to_string());
     row.push(status.to_string());
     row.push(description.to_string());
 
@@ -774,6 +811,7 @@ fn init_results_tsv(config: &Config, tsv_path: &Path) -> Result<()> {
             tsv_path,
             "baseline",
             &baseline_metrics,
+            None,
             "keep",
             "baseline",
         )?;
@@ -788,6 +826,7 @@ fn print_iteration_summary(
     commit: &str,
     primary: f64,
     baseline: f64,
+    strategy: Option<&str>,
     status: &str,
     description: &str,
     elapsed: Duration,
@@ -811,8 +850,13 @@ fn print_iteration_summary(
         _ => "?",
     };
 
+    let strategy_tag = match strategy {
+        Some(s) => format!("[{}] ", s),
+        None => String::new(),
+    };
+
     println!(
-        "  [{:>3}] {} {:<10} {:>12}  {:<8} {} {:<8} {} ({:.1}s)",
+        "  [{:>3}] {} {:<10} {:>12}  {:<8} {} {:<8} {}{} ({:.1}s)",
         iteration,
         status_marker,
         commit,
@@ -820,6 +864,7 @@ fn print_iteration_summary(
         vs_baseline,
         status_marker,
         status,
+        strategy_tag,
         description,
         elapsed.as_secs_f64()
     );
@@ -998,7 +1043,9 @@ pub fn run_loop(
             .map(|m| m.value)
             .unwrap_or(0.0);
 
-        append_result(config, tsv_path, "baseline", &metrics, "keep", "baseline")?;
+        append_result(
+            config, tsv_path, "baseline", &metrics, None, "keep", "baseline",
+        )?;
         println!(
             "  baseline: {} = {} ({:.1}s)",
             first_metric_name,
@@ -1024,6 +1071,30 @@ pub fn run_loop(
 
     let mut iteration = 0;
     let mut since_improvement = 0_usize;
+
+    // Initialize multi-armed bandit if enabled
+    let bandit_enabled = config
+        .bandit
+        .as_ref()
+        .map(|b| b.is_enabled())
+        .unwrap_or(false);
+    let exploration_c = config
+        .bandit
+        .as_ref()
+        .map(|b| b.exploration_c())
+        .unwrap_or(crate::bandit::DEFAULT_EXPLORATION_C);
+    let bandit_path = tsv_path.with_file_name("bandit.json");
+    let mut bandit = if bandit_enabled {
+        let state = BanditState::load(&bandit_path, exploration_c)?;
+        println!(
+            "  bandit: enabled ({} arms, exploration={:.2})",
+            state.arms.len(),
+            exploration_c
+        );
+        Some(state)
+    } else {
+        None
+    };
 
     // Track the best commit hash for rollback-to-best
     let mut best_commit_hash: Option<String> = {
@@ -1088,13 +1159,30 @@ pub fn run_loop(
         let history = read_history(tsv_path, num_metrics, config.constraints.len())?;
         let baseline_metric = history.first().map(|r| r.first_metric()).unwrap_or(0.0);
 
-        // 2. Build strategy hints and iteration prompt
+        // 2. Select bandit arm (if enabled) and build iteration prompt
+        let selected_arm = bandit.as_ref().map(|b| {
+            let arm = b.select_arm();
+            (arm.name.clone(), arm.description.clone())
+        });
+
         let hints = build_strategy_hints(config, &history);
-        let prompt = build_iteration_prompt(config, iteration, &history, &hints)?;
+        let bandit_arm_ref = selected_arm
+            .as_ref()
+            .map(|(name, desc)| (name.as_str(), desc.as_str()));
+        let prompt = build_iteration_prompt(config, iteration, &history, &hints, bandit_arm_ref)?;
         fs::write(&prompt_path, &prompt).context("writing iteration prompt")?;
 
+        let strategy_name: Option<&str> = selected_arm.as_ref().map(|(name, _)| name.as_str());
+
         // 3. Spawn agent
-        println!("  [{:>3}] spawning agent...", iteration);
+        if let Some(ref arm) = selected_arm {
+            println!(
+                "  [{:>3}] spawning agent... [strategy: {}]",
+                iteration, arm.0
+            );
+        } else {
+            println!("  [{:>3}] spawning agent...", iteration);
+        }
         let iter_start = Instant::now();
 
         let description = match spawn_agent(agent_cmd, &prompt_path, config.agent_timeout) {
@@ -1144,6 +1232,7 @@ pub fn run_loop(
                 tsv_path,
                 &commit_hash,
                 &metrics,
+                strategy_name,
                 "crash",
                 &description,
             )?;
@@ -1152,10 +1241,18 @@ pub fn run_loop(
                 &commit_hash,
                 0.0,
                 baseline_metric,
+                strategy_name,
                 "crash",
                 &description,
                 total_elapsed,
             );
+            // Update bandit: crash = no reward
+            if let Some(ref mut b) = bandit {
+                if let Some(ref arm) = selected_arm {
+                    b.update(&arm.0, false);
+                    b.save(&bandit_path)?;
+                }
+            }
             since_improvement += 1;
             continue;
         }
@@ -1194,6 +1291,7 @@ pub fn run_loop(
                 tsv_path,
                 &commit_hash,
                 &metrics,
+                strategy_name,
                 "crash",
                 &violation_desc,
             )?;
@@ -1202,10 +1300,18 @@ pub fn run_loop(
                 &commit_hash,
                 primary_val,
                 baseline_metric,
+                strategy_name,
                 "crash",
                 &violation_desc,
                 total_elapsed,
             );
+            // Update bandit: constraint violation = no reward
+            if let Some(ref mut b) = bandit {
+                if let Some(ref arm) = selected_arm {
+                    b.update(&arm.0, false);
+                    b.save(&bandit_path)?;
+                }
+            }
             since_improvement += 1;
             continue;
         }
@@ -1257,6 +1363,7 @@ pub fn run_loop(
                 tsv_path,
                 &commit_hash,
                 &metrics,
+                strategy_name,
                 "keep",
                 &description,
             )?;
@@ -1265,10 +1372,18 @@ pub fn run_loop(
                 &commit_hash,
                 primary_val,
                 baseline_metric,
+                strategy_name,
                 "keep",
                 &description,
                 total_elapsed,
             );
+            // Update bandit: kept = reward!
+            if let Some(ref mut b) = bandit {
+                if let Some(ref arm) = selected_arm {
+                    b.update(&arm.0, true);
+                    b.save(&bandit_path)?;
+                }
+            }
             since_improvement = 0;
         } else {
             // Discard — revert to best known state
@@ -1282,6 +1397,7 @@ pub fn run_loop(
                 tsv_path,
                 &commit_hash,
                 &metrics,
+                strategy_name,
                 "discard",
                 &description,
             )?;
@@ -1290,10 +1406,18 @@ pub fn run_loop(
                 &commit_hash,
                 primary_val,
                 baseline_metric,
+                strategy_name,
                 "discard",
                 &description,
                 total_elapsed,
             );
+            // Update bandit: discarded = no reward
+            if let Some(ref mut b) = bandit {
+                if let Some(ref arm) = selected_arm {
+                    b.update(&arm.0, false);
+                    b.save(&bandit_path)?;
+                }
+            }
             since_improvement += 1;
         }
     }

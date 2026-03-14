@@ -1,3 +1,4 @@
+mod bandit;
 mod config;
 mod diff;
 mod generate;

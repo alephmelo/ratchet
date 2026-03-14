@@ -3,6 +3,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::bandit::DEFAULT_EXPLORATION_C;
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub name: String,
@@ -37,6 +39,50 @@ pub struct Config {
     /// Maximum seconds to wait for the agent to finish (default: 1800 = 30 min).
     #[serde(default = "default_agent_timeout")]
     pub agent_timeout: u64,
+    /// Multi-armed bandit strategy selection. Off by default.
+    #[serde(default)]
+    pub bandit: Option<BanditConfig>,
+}
+
+/// Configuration for the multi-armed bandit strategy selector.
+/// Include `bandit: true` in ratchet.yaml to enable with defaults,
+/// or use the full form to customize.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum BanditConfig {
+    /// Simple boolean: `bandit: true` / `bandit: false`
+    Toggle(bool),
+    /// Full config: `bandit: { exploration: 1.0 }`
+    Full(BanditConfigFull),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BanditConfigFull {
+    /// UCB1 exploration constant (default: sqrt(2) ≈ 1.41).
+    #[serde(default = "default_exploration")]
+    pub exploration: f64,
+}
+
+fn default_exploration() -> f64 {
+    DEFAULT_EXPLORATION_C
+}
+
+impl BanditConfig {
+    /// Whether the bandit is enabled.
+    pub fn is_enabled(&self) -> bool {
+        match self {
+            BanditConfig::Toggle(b) => *b,
+            BanditConfig::Full(_) => true,
+        }
+    }
+
+    /// The UCB1 exploration constant.
+    pub fn exploration_c(&self) -> f64 {
+        match self {
+            BanditConfig::Toggle(_) => DEFAULT_EXPLORATION_C,
+            BanditConfig::Full(f) => f.exploration,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -215,6 +261,7 @@ impl Config {
         for c in &self.constraints {
             cols.push(c.name.clone());
         }
+        cols.push("strategy".to_string());
         cols.push("status".to_string());
         cols.push("description".to_string());
         cols
