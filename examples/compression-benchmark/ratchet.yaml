@@ -1,0 +1,57 @@
+name: "compression-benchmark"
+
+editable:
+  - compress.py
+
+readonly:
+  - benchmark.py
+
+run: "python3 benchmark.py"
+
+metric:
+  name: throughput
+  grep: "^throughput:"
+  direction: maximize
+
+constraints:
+  - name: ratio
+    grep: "^ratio:"
+    fail_below: 1.0
+
+  - name: correctness
+    grep: "^correctness:"
+    fail_below: 100.0
+
+timeout: 60
+
+agent: 'opencode run -m github-copilot/claude-sonnet-4.6 < {prompt}'
+# max_iterations: 20
+# patience: 5
+
+bandit: true
+
+baseline:
+  throughput: 8.5
+  ratio: 1.35
+  correctness: 100.0
+
+context: |
+  This is a lossless byte-stream compression benchmark. You can only edit
+  compress.py. The module must export compress(data) and decompress(data)
+  where decompress(compress(x)) == x for all inputs.
+
+  The baseline is a naive run-length encoding (RLE) that writes (count, byte)
+  pairs. The test corpus is ~2 MB of mixed data: long byte runs, structured
+  ASCII text, pseudo-random bytes, and mixed segments.
+
+  The primary metric is throughput (MB/s). The compression ratio
+  (original / compressed) must stay above 1.0 — the output must never be
+  larger than the input. Correctness (round-trip fidelity) must be 100%.
+
+  Only the Python standard library is available — no pip packages.
+
+  There is enormous room for improvement: better algorithms (LZ77, Huffman,
+  hybrid schemes), faster data structures (hash tables for match finding,
+  sliding windows), micro-optimizations (memoryview, struct packing,
+  bytearray pre-allocation), and even parallelism (chunked compression
+  with multiprocessing).

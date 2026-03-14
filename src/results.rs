@@ -9,6 +9,7 @@ struct Run {
     metric_values: Vec<f64>,
     #[allow(dead_code)]
     constraint_values: Vec<f64>,
+    strategy: String,
     status: String,
     description: String,
 }
@@ -30,11 +31,18 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     // Validate header matches config
     let expected_cols = config.tsv_columns();
     let actual_cols: Vec<&str> = header.split('\t').collect();
-    if actual_cols.len() != expected_cols.len() {
+    // Support both old format (without strategy column) and new format (with strategy column).
+    let has_strategy_col = actual_cols.iter().any(|c| c.trim() == "strategy");
+    let expected_len = if has_strategy_col {
+        expected_cols.len()
+    } else {
+        expected_cols.len() - 1 // old format lacks strategy column
+    };
+    if actual_cols.len() != expected_len {
         bail!(
             "header has {} columns, expected {} (from config)",
             actual_cols.len(),
-            expected_cols.len()
+            expected_len
         );
     }
 
@@ -49,7 +57,11 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        let min_cols = 1 + num_metrics + num_constraints + 2;
+        let min_cols = if has_strategy_col {
+            1 + num_metrics + num_constraints + 3 // commit + metrics + constraints + strategy + status + description
+        } else {
+            1 + num_metrics + num_constraints + 2
+        };
         if cols.len() < min_cols {
             bail!(
                 "line {} has {} columns, expected at least {}",
@@ -77,13 +89,22 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             constraint_values.push(v);
         }
 
-        let status_idx = 1 + num_metrics + num_constraints;
-        let desc_idx = status_idx + 1;
+        let (strategy, status_idx, desc_idx) = if has_strategy_col {
+            let strat_idx = 1 + num_metrics + num_constraints;
+            let stat_idx = strat_idx + 1;
+            let d_idx = stat_idx + 1;
+            (cols[strat_idx].trim().to_string(), stat_idx, d_idx)
+        } else {
+            let stat_idx = 1 + num_metrics + num_constraints;
+            let d_idx = stat_idx + 1;
+            (String::new(), stat_idx, d_idx)
+        };
 
         runs.push(Run {
             commit: cols[0].trim().to_string(),
             metric_values,
             constraint_values,
+            strategy,
             status: cols[status_idx].trim().to_string(),
             description: if desc_idx < cols.len() {
                 cols[desc_idx..].join("\t").trim().to_string()
@@ -145,11 +166,19 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
     }
     println!();
 
+    // Check if any runs have a strategy set (non-empty, not "-")
+    let show_strategy = runs
+        .iter()
+        .any(|r| !r.strategy.is_empty() && r.strategy != "-");
+
     // Scoreboard header
     if is_multi {
         let mut header_parts = vec![format!("  {:<10}", "commit")];
         for m in &primary {
             header_parts.push(format!("{:>14}", m.name));
+        }
+        if show_strategy {
+            header_parts.push(format!("  {:<16}", "strategy"));
         }
         header_parts.push(format!(
             "  {:<8} {:>1} {:<8} {}",
@@ -157,15 +186,22 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
         ));
         println!("{}", header_parts.join(""));
     } else {
-        println!(
-            "  {:<10} {:>12}  {:<8} {:>1} {:<8} {}",
-            "commit", first_metric.name, "vs base", "", "status", "description"
-        );
+        if show_strategy {
+            println!(
+                "  {:<10} {:>12}  {:<8} {:>1} {:<8} {:<16} {}",
+                "commit", first_metric.name, "vs base", "", "status", "strategy", "description"
+            );
+        } else {
+            println!(
+                "  {:<10} {:>12}  {:<8} {:>1} {:<8} {}",
+                "commit", first_metric.name, "vs base", "", "status", "description"
+            );
+        }
     }
     let separator_len = if is_multi {
-        76 + 14 * (num_metrics - 1)
+        76 + 14 * (num_metrics - 1) + if show_strategy { 18 } else { 0 }
     } else {
-        76
+        76 + if show_strategy { 18 } else { 0 }
     };
     println!("  {}", "-".repeat(separator_len));
 
@@ -200,21 +236,47 @@ pub fn show_results(config: &Config, tsv_path: &Path) -> Result<()> {
             for val in &run.metric_values {
                 parts.push(format!("{:>14}", format_metric(*val)));
             }
+            if show_strategy {
+                let strat_display = if run.strategy.is_empty() || run.strategy == "-" {
+                    "-".to_string()
+                } else {
+                    run.strategy.clone()
+                };
+                parts.push(format!("  {:<16}", strat_display));
+            }
             parts.push(format!(
                 "  {:<8} {} {:<8} {}",
                 delta_str, status_marker, run.status, run.description
             ));
             println!("{}", parts.join(""));
         } else {
-            println!(
-                "  {:<10} {:>12}  {:<8} {} {:<8} {}",
-                run.commit,
-                format_metric(first_val),
-                delta_str,
-                status_marker,
-                run.status,
-                run.description
-            );
+            if show_strategy {
+                let strat_display = if run.strategy.is_empty() || run.strategy == "-" {
+                    "-".to_string()
+                } else {
+                    run.strategy.clone()
+                };
+                println!(
+                    "  {:<10} {:>12}  {:<8} {} {:<8} {:<16} {}",
+                    run.commit,
+                    format_metric(first_val),
+                    delta_str,
+                    status_marker,
+                    run.status,
+                    strat_display,
+                    run.description
+                );
+            } else {
+                println!(
+                    "  {:<10} {:>12}  {:<8} {} {:<8} {}",
+                    run.commit,
+                    format_metric(first_val),
+                    delta_str,
+                    status_marker,
+                    run.status,
+                    run.description
+                );
+            }
         }
     }
 
