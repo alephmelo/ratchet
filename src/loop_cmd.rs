@@ -520,11 +520,12 @@ fn git_revert_editable(config: &Config, target: Option<&str>) -> Result<()> {
 /// Git: discard any uncommitted changes to non-editable files.
 /// This cleans up modifications the agent made to readonly or other non-editable files.
 fn git_restore_non_editable(config: &Config) -> Result<()> {
-    // Get all modified files (unstaged)
+    // Get all modified files (unstaged), relative to the working directory
+    // so paths match the config's editable list.
     let output = Command::new("git")
-        .args(["diff", "--name-only"])
+        .args(["diff", "--name-only", "--relative"])
         .output()
-        .context("git diff --name-only")?;
+        .context("git diff --name-only --relative")?;
     let output_str = String::from_utf8_lossy(&output.stdout).to_string();
 
     // Collect editable paths as a set for fast lookup
