@@ -1,0 +1,72 @@
+name: "bpe-tokenizer"
+
+editable:
+  - tokenizer.py
+
+readonly:
+  - benchmark.py
+
+run: "python3 benchmark.py"
+
+metrics:
+  - name: throughput
+    grep: "^throughput:"
+    direction: maximize
+
+  - name: tokens_per_word
+    grep: "^tokens_per_word:"
+    direction: minimize
+
+constraints:
+  - name: correctness
+    grep: "^correctness:"
+    fail_below: 100.0
+
+timeout: 90
+
+agent: 'opencode run -m github-copilot/gpt-5.3-codex < {prompt}'
+max_iterations: 15
+patience: 5
+
+bandit: true
+
+baseline:
+  throughput: 0.05
+  tokens_per_word: 1.793
+  correctness: 100.0
+
+context: |
+  This is a BPE (Byte-Pair Encoding) tokenizer benchmark, the same kind of
+  tokenizer used by GPT, LLaMA, and other large language models. You can only
+  edit tokenizer.py. The module must export train(), encode(), and decode()
+  where decode(encode(text, m), m) == text for all inputs (lossless).
+
+  The baseline is a naive BPE that:
+    - Trains by scanning the full token list for the most frequent pair on each
+      merge step — O(n * vocab_size) total
+    - Encodes by applying each merge rule sequentially with a linear scan —
+      O(merges * n) total
+    - decode() uses recursive expansion with no memoization
+
+  There are TWO competing primary metrics:
+    - throughput (MB/s, maximize): encoding speed on a 128 KB corpus
+    - tokens_per_word (minimize): average tokens per whitespace word — measures
+      vocabulary quality. Fewer tokens per word means better subword merges.
+
+  These metrics create natural tension: caching and indexing structures speed
+  up encoding but may change merge order or vocabulary quality. Aggressive
+  merging can reduce tokens per word but slow down encoding.
+
+  Correctness (round-trip fidelity) must remain 100%.
+
+  Only the Python standard library is available — no pip packages.
+
+  Optimization ideas:
+    - Priority queue for pair frequencies during training (avoid full rescan)
+    - Hash-map indexed pair tracking with O(1) updates
+    - Pre-compiled merge table for encoding (avoid sequential merge application)
+    - Trie-based or Aho-Corasick encoding for parallel merge matching
+    - Cached byte-to-token mapping for common byte sequences
+    - Parallel chunk encoding with multiprocessing
+    - More efficient data structures (arrays instead of lists, memoryview)
+    - Better merge selection criteria (not just frequency — consider token length)
