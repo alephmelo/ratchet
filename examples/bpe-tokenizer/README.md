@@ -15,7 +15,7 @@ strategy selection.
 The two primary metrics create natural tension: caching and indexing structures
 speed up encoding but may alter merge order, affecting vocabulary quality.
 
-## Experiment Results (mar17, nemotron-3-super-free)
+## Experiment Results (mar17, github-copilot/gpt-5.3-codex)
 
 15 iterations, 8 kept (Pareto frontier), 375,375x throughput improvement.
 
