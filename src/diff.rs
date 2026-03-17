@@ -10,7 +10,11 @@ fn find_best_commit(config: &Config, tsv_path: &Path) -> Result<String> {
         .with_context(|| format!("reading {}", tsv_path.display()))?;
 
     let mut lines = contents.lines();
-    let _header = lines.next().context("results.tsv is empty")?;
+    let header = lines.next().context("results.tsv is empty")?;
+
+    // Detect whether the TSV has a "strategy" column.
+    let header_cols: Vec<&str> = header.split('\t').collect();
+    let has_strategy_col = header_cols.iter().any(|c| c.trim() == "strategy");
 
     let num_metrics = config.primary_metrics().len();
     let num_constraints = config.constraints.len();
@@ -24,12 +28,12 @@ fn find_best_commit(config: &Config, tsv_path: &Path) -> Result<String> {
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        let min_cols = 1 + num_metrics + num_constraints + 2;
+        let min_cols = 1 + num_metrics + num_constraints + 2 + if has_strategy_col { 1 } else { 0 };
         if cols.len() < min_cols {
             continue;
         }
 
-        let status_idx = 1 + num_metrics + num_constraints;
+        let status_idx = 1 + num_metrics + num_constraints + if has_strategy_col { 1 } else { 0 };
         let status = cols[status_idx].trim();
         if status != "keep" {
             continue;
